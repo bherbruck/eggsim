@@ -383,11 +383,12 @@ export class World {
     this.beltPos += v * dt; this.simTime += dt;
     // belt is a velocity-driven kinematic slab; teleport it back now and then (it is featureless)
     const bt = this.beltBody.translation();
-    // vibration: the belt itself shakes side to side and up and down; position is re-centred so it can't drift
-    const vib = S.vibration, ts = this.simTime;
+    // Vibration up to 100% is gentle random nudging. Above that the belt itself starts shaking side to side
+    // and up and down (torture testing); its position is re-centred so it can't drift.
+    const vib = Math.min(1, S.vibration), shakeAmt = Math.max(0, S.vibration - 1), ts = this.simTime;
     if (bt.z > 100 || Math.abs(bt.x) > 0.3 || Math.abs(bt.y + 0.5) > 0.3) this.beltBody.setTranslation({ x: 0, y: -0.5, z: bt.z > 100 ? bt.z - 200 : bt.z }, true);
-    const shake = v > 0 || S.stopGo ? vib : 0;
-    this.beltBody.setLinvel({ x: shake * 9 * Math.sin(TAU * 11 * ts), y: shake * 5 * Math.cos(TAU * 17 * ts), z: v }, true);
+    const shake = v > 0 || S.stopGo ? shakeAmt : 0;
+    this.beltBody.setLinvel({ x: shake * 15 * Math.sin(TAU * 11 * ts), y: shake * 8 * Math.cos(TAU * 17 * ts), z: v }, true);
 
     // arrivals keep coming even when the belt is stopped; crowded spots simply refuse new eggs
     const meanGroup = 1 / (1 - S.clump * 0.9);
@@ -404,9 +405,10 @@ export class World {
     const sq = Math.sqrt(dt);
     for (const e of this.eggs) {
       const m = e.body.mass();
-      if (vib > 0) e.body.applyImpulse({ x: gaussR(r) * vib * 7 * sq * m, y: 0, z: gaussR(r) * vib * 5 * sq * m }, true);
-      if (S.bumps > 0 && r() < S.bumps * 0.6 * dt) {
-        const th = r() * TAU, dv = rr(r, 10, 45);
+      if (vib > 0 && (v > 0 || shakeAmt > 0)) e.body.applyImpulse({ x: gaussR(r) * (vib * 2.2 + shakeAmt * 6) * sq * m, y: 0, z: gaussR(r) * (vib * 1.2 + shakeAmt * 5) * sq * m }, true);
+      // knocks get rarer and gentler fast at low settings (10% ≈ one knock per egg every 3 minutes)
+      if (S.bumps > 0 && r() < S.bumps * S.bumps * 0.6 * dt) {
+        const th = r() * TAU, dv = rr(r, 6, 30) * (0.7 + 0.6 * S.bumps);
         e.body.applyImpulse({ x: Math.cos(th) * dv * m, y: rr(r, 0, 12) * m, z: Math.sin(th) * dv * m }, true);
         e.body.applyTorqueImpulse({ x: gaussR(r) * m * 6, y: gaussR(r) * m * 6, z: gaussR(r) * m * 6 }, true);
       }

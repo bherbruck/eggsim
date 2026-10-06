@@ -49,7 +49,7 @@ export const CONTROLS: [string, Control][] = [
   ["Belt", { k: "speed", label: "Belt speed", min: 0, max: 40, step: 0.5, f: (v) => v.toFixed(1) + " m/min" }],
   ["Belt", { k: "flow", label: "Flow direction in image", type: "select", options: [["down", "Top to bottom"], ["up", "Bottom to top"], ["right", "Left to right"], ["left", "Right to left"]] }],
   ["Belt", { k: "beltDirt", label: "Belt stains", min: 0, max: 1, step: 0.05, f: pct }],
-  ["Belt", { k: "vibration", label: "Vibration", min: 0, max: 2, step: 0.05, f: pct }],
+  ["Belt", { k: "vibration", label: "Vibration (over 100% shakes the belt)", min: 0, max: 2, step: 0.05, f: pct }],
   ["Eggs", { k: "rate", label: "Egg flow", min: 0, max: 120000, step: 200, f: (v) => v.toLocaleString() + " /h" }],
   ["Eggs", { k: "clump", label: "Clumping", min: 0, max: 1, step: 0.05, f: pct }],
   ["Eggs", { k: "lateral", label: "Arrival across belt", type: "select", options: [["uniform", "Spread evenly"], ["edges", "Both edges (rolled from cages)"], ["center", "Centered"], ["left", "One edge"]] }],
