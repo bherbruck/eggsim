@@ -1,5 +1,7 @@
 # Egg Belt Simulator
 
+**Live:** https://bherbruck.github.io/eggsim/ · original 2D prototype: https://bherbruck.github.io/eggsim/2d/
+
 Synthetic overhead camera feed of eggs on a conveyor, with physics (Three.js + Rapier) and pixel-accurate
 ground truth for detection, rotated-box, segmentation and tracking models. The original 2D canvas prototype
 is in `legacy-2d/`.
