@@ -1,0 +1,17 @@
+{
+  "name": "eggsim",
+  "displayName": "Egg Belt Simulator",
+  "version": "1.0.0",
+  "description": "Synthetic overhead camera on an egg conveyor with physics. Agents can start sessions, capture frames with visible-only boxes, rotated boxes, polygons, instance masks and track ids, and export randomized YOLO/MOT datasets.",
+  "author": { "name": "Brennen Herbruck" },
+  "homepage": "https://bherbruck.github.io/eggsim/",
+  "repository": "https://github.com/bherbruck/eggsim",
+  "keywords": ["synthetic-data", "computer-vision", "dataset", "yolo", "segmentation", "tracking", "eggs", "conveyor"],
+  "mcpServers": {
+    "eggsim": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": { "EGGSIM_DEPS": "${CLAUDE_PLUGIN_DATA}" }
+    }
+  }
+}

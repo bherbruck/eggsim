@@ -11,7 +11,8 @@
     "shot": "node scripts/shot.mjs",
     "export": "node scripts/export.mjs",
     "mcp": "node scripts/mcp-server.mjs",
-    "test:mcp": "node scripts/test-mcp.mjs"
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "build:mcp": "rolldown scripts/mcp-server.mjs --platform node --format esm --file mcp/server.mjs --external playwright"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

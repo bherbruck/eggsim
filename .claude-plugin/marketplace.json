@@ -1,0 +1,14 @@
+{
+  "name": "eggsim",
+  "owner": {
+    "name": "Brennen Herbruck"
+  },
+  "description": "Egg Belt Simulator: synthetic egg conveyor camera data for detection, segmentation and tracking.",
+  "plugins": [
+    {
+      "name": "eggsim",
+      "source": "./",
+      "description": "Egg belt camera simulator as an MCP server: sessions, labeled frame capture and randomized dataset export."
+    }
+  ]
+}

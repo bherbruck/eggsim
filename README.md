@@ -44,12 +44,27 @@ node scripts/export.mjs --randomize --frames 1000 --sequences 50 --workers 8 --j
 node scripts/export.mjs --profiles flockA.json,flockB.json --frames 1000 --sequences 20 --workers 8 --out data/mine
 ```
 
+## Install as a Claude Code plugin
+
+```
+/plugin marketplace add bherbruck/eggsim
+/plugin install eggsim@eggsim
+```
+
+or from a shell: `claude plugin marketplace add bherbruck/eggsim && claude plugin install eggsim@eggsim`.
+
+That adds the `eggsim` MCP server. It needs only Node 18+: on the first capture it installs
+`playwright-core` and a headless Chromium (about 110 MB) into the plugin's data folder, which takes a minute
+once. It loads the published simulator from GitHub Pages. Set `EGGSIM_GPU=1` in your environment to render on
+the GPU.
+
 ## Agents and programmatic access
 
 Three ways in, all producing the same labels:
 
-1. **MCP server** for Claude and other agents: `claude mcp add eggsim -- node /path/to/eggsim/scripts/mcp-server.mjs`
-   (this repo's `.mcp.json` registers it automatically). Tools: `list_presets`, `describe_settings`,
+1. **MCP server** for Claude and other agents: install the plugin above, or
+   `claude mcp add eggsim -- node /path/to/eggsim/mcp/server.mjs` (a single bundled file; rebuild it with
+   `npm run build:mcp` after changing `scripts/`). Tools: `list_presets`, `describe_settings`,
    `start_session`, `set_settings`, `step`, `capture_frame`, `export_dataset`, `end_session`.
    `capture_frame` returns a downscaled preview inline, or writes full-resolution PNG, JSON, instance mask
    and YOLO txt with `save_dir`.

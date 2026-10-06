@@ -1,11 +1,14 @@
 // Drives the simulator in headless Chromium. Shared by the export CLI and the MCP server.
-import { chromium } from "playwright";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveSpec, sample, mulberry32 } from "./randomize.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// scripts/lib/sim.mjs in the repo, or mcp/server.mjs when bundled: find the repo root either way
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = [path.resolve(HERE, "../.."), path.resolve(HERE, "..")].find((d) => fs.existsSync(path.join(d, "index.html"))) ?? HERE;
 const LIVE = "https://bherbruck.github.io/eggsim/";
 
 /** Local build if there is one, otherwise the published GitHub Pages copy. EGGSIM_URL overrides. */
@@ -15,9 +18,42 @@ export function defaultUrl() {
   return fs.existsSync(local) ? "file://" + local : LIVE;
 }
 
+const PW_VERSION = "1.63.0";
+const log = (m) => process.stderr.write(`[eggsim] ${m}\n`);
+
+/**
+ * Playwright's Chromium API. Uses the repo's own playwright when installed (development). Otherwise
+ * (e.g. installed as a Claude Code plugin, where nothing runs npm install) it installs playwright-core
+ * once into a cache directory: $EGGSIM_DEPS, else $CLAUDE_PLUGIN_DATA, else ~/.cache/eggsim.
+ */
+async function chromiumApi() {
+  try { const c = (await import("playwright")).chromium; return { launch: (o) => c.launch(o) }; } catch {}
+  const dir = process.env.EGGSIM_DEPS || process.env.CLAUDE_PLUGIN_DATA || path.join(os.homedir(), ".cache", "eggsim");
+  const entry = path.join(dir, "node_modules", "playwright-core", "index.mjs");
+  if (!fs.existsSync(entry)) {
+    log(`first run: installing playwright-core ${PW_VERSION} into ${dir} (one time)`);
+    fs.mkdirSync(dir, { recursive: true });
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    execFileSync(npm, ["install", "--prefix", dir, "--no-audit", "--no-fund", "--silent", `playwright-core@${PW_VERSION}`], { stdio: ["ignore", process.stderr, process.stderr], shell: process.platform === "win32" });
+  }
+  const c = (await import(pathToFileURL(entry).href)).chromium;
+  return { launch: (o) => c.launch(o), cli: path.join(dir, "node_modules", "playwright-core", "cli.js") };
+}
+
+async function launchChromium(api, args) {
+  try { return await api.launch({ args }); }
+  catch (e) {
+    if (!api.cli || !/Executable doesn't exist|browserType.launch/i.test(String(e.message))) throw e;
+    log("first run: downloading headless Chromium (about 110 MB, one time)");
+    execFileSync(process.execPath, [api.cli, "install", "chromium-headless-shell"], { stdio: ["ignore", process.stderr, process.stderr] });
+    return api.launch({ args });
+  }
+}
+
 export async function launch({ gpu = !!process.env.EGGSIM_GPU, url = defaultUrl() } = {}) {
   const args = gpu ? ["--enable-gpu", "--ignore-gpu-blocklist", "--use-angle=default"] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
-  const browser = await chromium.launch({ args });
+  const api = await chromiumApi();
+  const browser = await launchChromium(api, args);
   return {
     browser, url,
     async session(opts = {}) { return Session.open(browser, url, opts); },
