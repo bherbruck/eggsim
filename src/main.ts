@@ -1,5 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { DEFAULTS, BASE, PRESETS, CONTROLS, CAMERA_KEYS, OVERLAY_KEYS, Settings } from "./settings";
+import { DEFAULTS, BASE, PRESETS, CONTROLS, CAMERA_KEYS, OVERLAY_KEYS, Settings, SHADES, classNames } from "./settings";
 import { World, MM } from "./world";
 import { View } from "./view";
 
@@ -24,13 +24,11 @@ const inputs: Record<string, { el: HTMLInputElement | HTMLSelectElement; c: (typ
 function buildControls() {
   const root = $("#controls"), groups: Record<string, HTMLElement> = {};
   const ps = $("#preset") as HTMLSelectElement;
-  for (const [k, p] of Object.entries(PRESETS)) ps.add(new Option(p.label, k));
-  ps.add(new Option("Custom", "custom"));
+  fillPresets();
   ps.addEventListener("change", () => {
-    if (!(ps.value in PRESETS)) return;
-    const { label, ...vals } = PRESETS[ps.value];
-    Object.assign(S, BASE, vals, { preset: ps.value });
-    syncControls(); view.configure(S); restart(); save();
+    const v = ps.value;
+    if (v in PRESETS) { const { label, ...vals } = PRESETS[v]; applySettings({ ...BASE, ...vals, preset: v }); }
+    else if (v.startsWith("profile:")) { const p = loadProfiles()[v.slice(8)]; if (p) applySettings({ ...p, preset: v }); }
   });
   for (const [grp, c] of CONTROLS) {
     if (!groups[grp]) {
@@ -40,7 +38,12 @@ function buildControls() {
     }
     const row = document.createElement("div"), id = "c-" + c.k;
     row.className = "ctl" + (c.type === "toggle" ? " toggle" : "");
-    row.innerHTML = `<label for="${id}">${c.label}</label>` + (c.f ? `<output id="${id}-o"></output>` : "");
+    row.innerHTML = `<label for="${id}">${c.label}</label>` + (c.f || c.type === "range2" ? `<output id="${id}-o"></output>` : "");
+    if (c.type === "range2") {
+      buildDual(row, c);
+      groups[grp].appendChild(row);
+      continue;
+    }
     let el: HTMLInputElement | HTMLSelectElement;
     if (c.type === "select") {
       el = document.createElement("select");
@@ -59,7 +62,7 @@ function buildControls() {
       const val = c.type === "toggle" ? (el as HTMLInputElement).checked : c.type === "select" ? el.value : Number(el.value);
       (S as any)[c.k] = val;
       if (c.f) $(`#${id}-o`).textContent = c.f(val as number);
-      if (!OVERLAY_KEYS.includes(c.k)) { S.preset = "custom"; ps.value = "custom"; }
+      if (!OVERLAY_KEYS.includes(c.k)) markCustom();
       if (CAMERA_KEYS.includes(c.k)) reconfigure();
       else if (c.k === "beltW") world.buildStatics();
       world.applyMaterialSettings();
@@ -69,13 +72,98 @@ function buildControls() {
   }
   syncControls();
 }
+function markCustom() { S.preset = "custom"; ($("#preset") as HTMLSelectElement).value = "custom"; $("#prof-del").hidden = true; }
+
+const SHADE_NAMES: [number, string][] = [[0.1, "white"], [0.3, "cream"], [0.5, "tinted"], [0.7, "brown"], [0.9, "dark brown"], [1.01, "chocolate"]];
+const shadeName = (v: number) => SHADE_NAMES.find(([t]) => v < t)![1];
+const duals: (() => void)[] = [];
+/** Two-handle slider over the shell color scale. */
+function buildDual(row: HTMLElement, c: (typeof CONTROLS)[number][1]) {
+  const k1 = c.k, k2 = c.k2!;
+  const box = document.createElement("div"); box.className = "dual";
+  const grad = SHADES.map(([s, h, sa, l]) => `hsl(${h},${sa}%,${l}%) ${s * 100}%`).join(",");
+  box.innerHTML = `<div class="track" style="background:linear-gradient(to right,${grad})"></div><div class="sel"></div>`;
+  const mk = (id: string, label: string) => {
+    const el = document.createElement("input");
+    el.type = "range"; el.id = id; el.min = String(c.min); el.max = String(c.max); el.step = String(c.step);
+    el.setAttribute("aria-label", label); box.appendChild(el); return el;
+  };
+  const lo = mk("c-" + k1, "Lightest shell color"), hi = mk("c-" + k2, "Darkest shell color");
+  row.querySelector("label")!.setAttribute("for", lo.id);
+  row.appendChild(box);
+  const out = row.querySelector("output") as HTMLOutputElement;
+  const sel = box.querySelector(".sel") as HTMLElement;
+  const show = () => {
+    const a = Math.min((S as any)[k1], (S as any)[k2]), b = Math.max((S as any)[k1], (S as any)[k2]);
+    lo.value = String((S as any)[k1]); hi.value = String((S as any)[k2]);
+    sel.style.left = `calc(8px + (100% - 16px) * ${a} - 4px)`; sel.style.width = `calc((100% - 16px) * ${b - a} + 8px)`;
+    out.textContent = shadeName(a) === shadeName(b) ? shadeName(a) : `${shadeName(a)} to ${shadeName(b)}`;
+  };
+  for (const [el, k] of [[lo, k1], [hi, k2]] as const) {
+    el.addEventListener("input", () => { (S as any)[k] = Number(el.value); show(); markCustom(); save(); });
+  }
+  duals.push(show);
+}
+
+// ---------------- profiles ----------------
+const PROF_KEY = "eggbelt3d.profiles";
+function loadProfiles(): Record<string, Partial<Settings>> { try { return JSON.parse(localStorage.getItem(PROF_KEY) || "{}"); } catch { return {}; } }
+function storeProfiles(p: Record<string, Partial<Settings>>) { try { localStorage.setItem(PROF_KEY, JSON.stringify(p)); return true; } catch { return false; } }
+function fillPresets() {
+  const ps = $("#preset") as HTMLSelectElement;
+  ps.innerHTML = "";
+  const g1 = document.createElement("optgroup"); g1.label = "Presets";
+  for (const [k, p] of Object.entries(PRESETS)) g1.appendChild(new Option(p.label, k));
+  ps.appendChild(g1);
+  const profs = Object.keys(loadProfiles());
+  if (profs.length) {
+    const g2 = document.createElement("optgroup"); g2.label = "Saved profiles";
+    for (const n of profs) g2.appendChild(new Option(n, "profile:" + n));
+    ps.appendChild(g2);
+  }
+  ps.appendChild(new Option("Custom", "custom"));
+  ps.value = S.preset;
+  if (ps.value !== S.preset) ps.value = "custom";
+  $("#prof-del").hidden = !S.preset.startsWith("profile:");
+}
+function applySettings(vals: Partial<Settings>) {
+  Object.assign(S, { ...DEFAULTS, ...vals });
+  fillPresets(); syncControls(); view.configure(S); restart(); save();
+}
+function settingsJSON() { const { preset, ...rest } = S; return rest; }
+$("#prof-save").addEventListener("click", () => {
+  const inp = $("#prof-name") as HTMLInputElement, name = inp.value.trim();
+  if (!name) { toast("Type a profile name first."); inp.focus(); return; }
+  const p = loadProfiles(); p[name] = settingsJSON();
+  if (!storeProfiles(p)) { toast("This browser is blocking storage. Use Copy settings JSON instead."); return; }
+  S.preset = "profile:" + name; inp.value = ""; fillPresets(); save();
+  toast(`Saved profile "${name}"`);
+});
+$("#prof-del").addEventListener("click", () => {
+  const name = S.preset.slice(8), p = loadProfiles(); delete p[name]; storeProfiles(p);
+  S.preset = "custom"; fillPresets(); save(); toast(`Deleted profile "${name}"`);
+});
+$("#prof-copy").addEventListener("click", () => {
+  navigator.clipboard.writeText(JSON.stringify(settingsJSON(), null, 2)).then(
+    () => toast("Settings JSON copied. Pass it to the export script with --settings."),
+    () => toast("The clipboard is blocked here. Open the page in its own tab and try again."),
+  );
+});
+$("#prof-paste-open").addEventListener("click", () => { $("#paste").hidden = !$("#paste").hidden; });
+$("#prof-load").addEventListener("click", () => {
+  try {
+    const v = JSON.parse(($("#prof-json") as HTMLTextAreaElement).value);
+    applySettings({ ...v, preset: "custom" }); $("#paste").hidden = true; toast("Settings applied");
+  } catch { toast("That isn't valid JSON. Paste the whole block copied with Copy settings JSON."); }
+});
+
 function syncControls() {
+  duals.forEach((f) => f());
   for (const { el, c } of Object.values(inputs)) {
     if (c.type === "toggle") (el as HTMLInputElement).checked = !!(S as any)[c.k];
     else el.value = String((S as any)[c.k]);
     if (c.f) $(`#c-${c.k}-o`).textContent = c.f(Number((S as any)[c.k]));
   }
-  ($("#preset") as HTMLSelectElement).value = S.preset in PRESETS ? S.preset : "custom";
 }
 
 // ---------------- stats ----------------
@@ -96,16 +184,19 @@ function updateStats() {
   const beltArea = Math.min(S.beltW, S.fov) * MM * world.Lcm;
   $("#st-cover").textContent = ((area / beltArea) * 100).toFixed(1) + "%";
   $("#st-scale").innerHTML = `${view.scale.toFixed(2)} <small>px/mm · egg ≈ ${Math.round(S.size * view.scale)} px</small>`;
-  $("#st-def").textContent = `${world.tally.dirty} / ${world.tally.cracked} / ${world.tally.broken}`;
+  $("#st-def").textContent = `${world.tally.dirty} / ${world.tally.broken}`;
 }
 
 // ---------------- loop ----------------
 let paused = false, ready = false, last = performance.now(), acc = 0, frameAcc = 0, statT = 0;
 const DT = 1 / 120;
+let restartToken = 0;
 function restart() {
   $("#busy").hidden = false;
   ready = false;
+  const token = ++restartToken;
   requestAnimationFrame(() => setTimeout(() => {
+    if (token !== restartToken) return; // a newer restart is queued
     world.restart();
     ready = true;
     view.render(S, world.simTime);
@@ -140,20 +231,23 @@ function stepFrame() {
 
 let toastT = 0;
 function toast(msg: string) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = window.setTimeout(() => (t.hidden = true), 2400); }
-function frameLabels() {
+function frameLabels(withImage = false) {
+  const labels = view.computeLabels(S);
+  const eggs = new Map(world.eggs.map((e) => [e.id, e]));
   return {
-    frame: view.frameNo, width: view.W, height: view.H, px_per_mm_belt_plane: +view.scale.toFixed(4), flow: S.flow,
-    objects: view.labeled().map(([o, b]) => ({
-      id: o.id, class: o.cls, bbox_xywh: b.map((v) => +v.toFixed(1)),
-      ...(o.kind === "egg"
-        ? {
-            length_mm: +(o.a * 20).toFixed(1), width_mm: +(o.b * 20).toFixed(1), color: o.look.brown ? "brown" : "white",
-            dirty: o.look.dirty, cracked: o.look.cracked,
-            velocity_mm_s: [+(o.lv.x * 10).toFixed(1), +(o.lv.z * 10).toFixed(1)],
-            rolling: o.av.length() > 1.5, on_top_of_another: o.p.y > o.b * 1.5,
-          }
-        : {}),
-    })),
+    frame: view.frameNo, sim_time_s: +world.simTime.toFixed(4), width: view.W, height: view.H,
+    px_per_mm_belt_plane: +view.scale.toFixed(4), classes: classNames(S),
+    ...(withImage ? { image: view.renderer.domElement.toDataURL("image/png") } : {}),
+    objects: labels.map((L) => {
+      const e = L.class !== "dirt" ? eggs.get(L.id) : undefined;
+      return {
+        ...L,
+        ...(e ? {
+          length_mm: +(e.a * 20).toFixed(1), width_mm: +(e.b * 20).toFixed(1), dirty: e.look.dirty, cracked: e.look.cracked,
+          velocity_mm_s: [+(e.lv.x * 10).toFixed(1), +(e.lv.z * 10).toFixed(1)], rolling: e.av.length() > 1.5, on_top_of_another: e.p.y > e.b * 1.5,
+        } : {}),
+      };
+    }),
   };
 }
 
@@ -174,7 +268,13 @@ window.addEventListener("keydown", (ev) => {
 });
 
 // For automated checks and dataset scripts.
-(window as any).eggsim = { S, world, view, step: (n = 1) => { for (let i = 0; i < n; i++) world.step(DT); view.render(S, world.simTime); }, setPaused, frameLabels, reconfigure, restart };
+(window as any).eggsim = {
+  S, world, view, setPaused, frameLabels, reconfigure, restart, applySettings, PRESETS, BASE,
+  ready: () => ready,
+  /** Advance `seconds` of simulation, then render one camera frame. */
+  advance: (seconds: number) => { const n = Math.max(1, Math.round(seconds / DT)); for (let i = 0; i < n; i++) world.step(DT); view.render(S, world.simTime); },
+  step: (n = 1) => { for (let i = 0; i < n; i++) world.step(DT); view.render(S, world.simTime); },
+};
 
 buildControls();
 view.configure(S);

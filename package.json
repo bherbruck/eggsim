@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "artifact": "vite build && node scripts/artifact.mjs",
-    "shot": "node scripts/shot.mjs"
+    "shot": "node scripts/shot.mjs",
+    "export": "node scripts/export.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

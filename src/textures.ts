@@ -40,10 +40,13 @@ export const eggAxial = (e: { a: number }, t: number) => -e.a * Math.cos(t);
 /**
  * Paints the shell onto a lathe UV layout: x = angle around the long axis, y = position along it.
  * Spots are pre-distorted so they come out round on the curved shell.
+ * Also returns a dirt mask (white where manure is) used for the dirt segmentation labels.
  */
 export function eggTexture(e: EggLook, H: number) {
   const W = H * 2;
   const c = canvas(W, H), g = c.getContext("2d")!;
+  const dm = canvas(W, H), mg = dm.getContext("2d")!;
+  mg.fillStyle = "#000"; mg.fillRect(0, 0, W, H);
   const r = mulberry32(e.seed);
   g.fillStyle = `hsl(${e.h},${e.sat}%,${e.l}%)`;
   g.fillRect(0, 0, W, H);
@@ -53,13 +56,13 @@ export function eggTexture(e: EggLook, H: number) {
   const surfPoint = () => { for (;;) { const t = r() * Math.PI; if (r() < Math.sin(t)) return [r() * TAU, t]; } };
   const offset = (th: number, t: number, dx: number, dy: number) => [th + dx / R(t), clamp(t + dy / ds(t), 0.02, Math.PI - 0.02)];
 
-  const spot = (th: number, t: number, rho: number, fill: string | CanvasGradient, rot = 0) => {
+  const spot = (gg: CanvasRenderingContext2D, th: number, t: number, rho: number, fill: string, rot = 0) => {
     const [x, y] = px(th, t);
     const rx = Math.min(W / 2, (rho * W) / (TAU * R(t))), ry = (rho * H) / (Math.PI * ds(t));
-    g.fillStyle = fill;
+    gg.fillStyle = fill;
     for (const ox of [0, -W, W]) {
       if (x + ox + rx < 0 || x + ox - rx > W) continue;
-      g.beginPath(); g.ellipse(x + ox, y, rx, ry, rot, 0, TAU); g.fill();
+      gg.beginPath(); gg.ellipse(x + ox, y, rx, ry, rot, 0, TAU); gg.fill();
     }
   };
   const softSpot = (th: number, t: number, rho: number, inner: string) => {
@@ -82,12 +85,12 @@ export function eggTexture(e: EggLook, H: number) {
   const nSpk = e.brown ? Math.floor(rr(r, 20, 140)) : Math.floor(rr(r, 0, 18));
   for (let i = 0; i < nSpk; i++) {
     const [th, t] = surfPoint();
-    spot(th, t, rr(r, 0.2, e.brown ? 1.1 : 0.6),
+    spot(g, th, t, rr(r, 0.2, e.brown ? 1.1 : 0.6),
       e.brown ? `hsla(${e.h - 4},${e.sat + 15}%,${e.l - 22}%,${rr(r, 0.2, 0.55)})` : `rgba(150,140,120,${rr(r, 0.1, 0.25)})`, r() * 3);
   }
   // calcium deposits
-  if (r() < 0.25) for (let i = 0; i < 10; i++) { const [th, t] = surfPoint(); spot(th, t, rr(r, 0.4, 1.4), `rgba(255,252,240,${rr(r, 0.25, 0.6)})`); }
-  // manure
+  if (r() < 0.25) for (let i = 0; i < 10; i++) { const [th, t] = surfPoint(); spot(g, th, t, rr(r, 0.4, 1.4), `rgba(255,252,240,${rr(r, 0.25, 0.6)})`); }
+  // manure, painted into the dirt mask as well
   if (e.dirty) {
     const n = 1 + Math.floor(r() * 3);
     for (let i = 0; i < n; i++) {
@@ -95,12 +98,14 @@ export function eggTexture(e: EggLook, H: number) {
       const rad = rr(r, 3, 11), tone = r() < 0.6 ? [62, 48, 30] : [74, 72, 44];
       for (let j = 0; j < 12; j++) {
         const [th, t] = offset(th0, t0, rr(r, -rad, rad) * 0.6, rr(r, -rad, rad) * 0.6);
-        spot(th, t, rad * rr(r, 0.2, 0.6), `rgba(${tone[0]},${tone[1]},${tone[2]},${rr(r, 0.18, 0.5)})`, r() * 3);
+        const rho = rad * rr(r, 0.2, 0.6), a = rr(r, 0.18, 0.5), rot = r() * 3;
+        spot(g, th, t, rho, `rgba(${tone[0]},${tone[1]},${tone[2]},${a})`, rot);
+        spot(mg, th, t, rho, `rgba(255,255,255,${Math.min(1, a * 1.6)})`, rot);
       }
-      if (r() < 0.5) spot(th0, t0, rad * 0.25, "rgba(238,236,226,0.75)");
+      if (r() < 0.5) { spot(g, th0, t0, rad * 0.25, "rgba(238,236,226,0.75)"); spot(mg, th0, t0, rad * 0.25, "#fff"); }
     }
   }
-  // cracks
+  // hairline cracks (visual only, never a label)
   if (e.cracked) {
     const [th0, t0] = surfPoint();
     const arms = 2 + Math.floor(r() * 3);
@@ -119,7 +124,7 @@ export function eggTexture(e: EggLook, H: number) {
       }
     }
   }
-  return c;
+  return { color: c, dirt: dm };
 }
 
 // ---------------- belt ----------------
@@ -131,8 +136,42 @@ function weave(u: number, v: number) {
   const edge = 1 - 0.32 * Math.pow(Math.abs(t - 0.5) * 2, 6);
   return edge * (0.95 + 0.05 * Math.sin(along * Math.PI)) * (over ? 1 : 0.92);
 }
+function perfTile(type: string, P: number) {
+  // white modular plastic with round holes; transparent where the holes are
+  const big = type === "perf";
+  const holes: [number, number][] = [];
+  const d = big ? 22 : 8, pitch = big ? 20 : 10;
+  for (let j = 0; j < TILE_MM / pitch; j++) for (let i = 0; i < TILE_MM / pitch; i++) {
+    if (big && (i + j) % 2) continue;
+    holes.push([i * pitch + (big ? 10 : (j % 2 ? 0 : 5)), j * pitch + (big ? 10 : 5)]);
+  }
+  const col = canvas(P, P), bump = canvas(P, P);
+  const gc = col.getContext("2d")!, gb = bump.getContext("2d")!;
+  const ic = gc.createImageData(P, P), ib = gb.createImageData(P, P);
+  const r = mulberry32(42), rad = d / 2, bev = big ? 1.6 : 0.9;
+  for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) {
+    const u = ((i + 0.5) / P) * TILE_MM, v = ((j + 0.5) / P) * TILE_MM;
+    let dist = 1e9;
+    for (const [hx, hy] of holes) for (const ox of [-TILE_MM, 0, TILE_MM]) for (const oy of [-TILE_MM, 0, TILE_MM]) {
+      const dd = Math.hypot(u - hx - ox, v - hy - oy) - rad; if (dd < dist) dist = dd;
+    }
+    const o = (j * P + i) * 4;
+    const edge = clamp(dist / bev, 0, 1); // 0 at the hole lip, 1 on the flat
+    const n = (r() - 0.5) * 0.04;
+    const f = 0.8 + 0.2 * Math.sqrt(edge) + n;
+    ic.data[o] = clamp(232 * f, 0, 255); ic.data[o + 1] = clamp(234 * f, 0, 255); ic.data[o + 2] = clamp(229 * f, 0, 255);
+    ic.data[o + 3] = dist < 0 ? 0 : 255;
+    ib.data[o] = ib.data[o + 1] = ib.data[o + 2] = clamp(Math.sqrt(edge) * 255, 0, 255); ib.data[o + 3] = 255;
+  }
+  gc.putImageData(ic, 0, 0); gb.putImageData(ib, 0, 0);
+  return { col, bump };
+}
+
+export const isPerforated = (type: string) => type === "perf" || type === "perfsmall";
+
 export function beltTiles(type: string) {
   const P = 320;
+  if (isPerforated(type)) return perfTile(type, P);
   const col = canvas(P, P), bump = canvas(P, P);
   const gc = col.getContext("2d")!, gb = bump.getContext("2d")!;
   const ic = gc.createImageData(P, P), ib = gb.createImageData(P, P);

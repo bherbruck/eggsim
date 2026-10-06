@@ -2,8 +2,9 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { Settings } from "./settings";
-import { World, MM, Egg, Flat } from "./world";
+import { World, MM } from "./world";
 import { clamp, TAU } from "./rng";
+import { Labeler, Label } from "./labels";
 
 const QUAD_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
@@ -11,7 +12,7 @@ const ACC_FS = `uniform sampler2D tex; uniform float w; varying vec2 vUv;
 void main(){ gl_FragColor = vec4(texture2D(tex, vUv).rgb * w, 1.0); }`;
 
 const POST_FS = `
-uniform sampler2D tex; uniform vec2 res; uniform float aspect, k, gain, vignette, noise, flick, bands, phase, beat, seed;
+uniform sampler2D tex; uniform vec2 res, hot; uniform float aspect, k, gain, vignette, noise, flick, bands, phase, beat, seed, contrast, uneven;
 uniform vec3 wb; varying vec2 vUv;
 vec2 distort(vec2 uv){
   vec2 p = (uv - 0.5) * vec2(aspect, 1.0); float r2 = dot(p, p); float rc2 = 0.25 * (aspect * aspect + 1.0);
@@ -32,19 +33,22 @@ void main(){
   vec2 ca = (s - 0.5) * k * 0.012;
   vec3 c = vec3(texture2D(tex, s + ca).r, texture2D(tex, s).g, texture2D(tex, s - ca).b);
   c *= wb * gain;
+  vec2 hd = (vUv - hot) * vec2(aspect, 1.0);
+  c *= mix(1.0, max(0.05, 1.3 - 1.1 * dot(hd, hd)), uneven);
   float row = 1.0 - vUv.y;
   c *= 1.0 - flick * (0.5 + 0.5 * sin(6.2831853 * bands * row + phase)) - beat;
   c = neutral(max(c, 0.0));
   float rr = length((vUv - 0.5) * vec2(aspect, 1.0)) / length(vec2(aspect, 1.0) * 0.5);
   c *= 1.0 - vignette * 0.75 * smoothstep(0.35, 1.0, rr);
   vec3 o = toSRGB(c);
+  o = clamp((o - 0.5) * contrast + 0.5, 0.0, 1.0);
   float n = (hash(gl_FragCoord.xy) + hash(gl_FragCoord.xy + 17.0) + hash(gl_FragCoord.xy + 41.0) - 1.5);
   float lum = dot(o, vec3(0.299, 0.587, 0.114));
   o += n * noise * (0.035 + 0.09 * sqrt(lum)) * max(1.0, gain);
   gl_FragColor = vec4(o, 1.0);
 }`;
 
-const CLS_COL: Record<string, string> = { egg: "#4ade80", dirty: "#fbbf24", cracked: "#fb923c", broken: "#f43f5e", feather: "#38bdf8" };
+const CLS_COL: Record<string, string> = { egg: "#4ade80", dirty_egg: "#fbbf24", dirt: "#d9480f", broken: "#f43f5e", feather: "#38bdf8" };
 
 function tempMul(k: number) {
   const t = (k - 2700) / (6500 - 2700);
@@ -61,13 +65,15 @@ export class View {
   quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   accMat = new THREE.ShaderMaterial({ uniforms: { tex: { value: null }, w: { value: 1 } }, vertexShader: QUAD_VS, fragmentShader: ACC_FS, blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false });
   postMat = new THREE.ShaderMaterial({
-    uniforms: { tex: { value: null }, res: { value: new THREE.Vector2() }, aspect: { value: 1 }, k: { value: 0 }, gain: { value: 1 }, vignette: { value: 0 }, noise: { value: 0 }, flick: { value: 0 }, bands: { value: 3 }, phase: { value: 0 }, beat: { value: 0 }, seed: { value: 0 }, wb: { value: new THREE.Vector3(1, 1, 1) } },
+    uniforms: { tex: { value: null }, res: { value: new THREE.Vector2() }, aspect: { value: 1 }, k: { value: 0 }, gain: { value: 1 }, vignette: { value: 0 }, noise: { value: 0 }, flick: { value: 0 }, bands: { value: 3 }, phase: { value: 0 }, beat: { value: 0 }, seed: { value: 0 }, contrast: { value: 1 }, uneven: { value: 0 }, hot: { value: new THREE.Vector2(0.5, 0.5) }, wb: { value: new THREE.Vector3(1, 1, 1) } },
     vertexShader: QUAD_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
   });
   accScene = new THREE.Scene(); postScene = new THREE.Scene();
   ctx: CanvasRenderingContext2D;
   flickPhase = 0;
   frameNo = 0;
+  labeler = new Labeler();
+  last: Label[] = [];
 
   constructor(public display: HTMLCanvasElement, public world: World) {
     this.ctx = display.getContext("2d")!;
@@ -108,6 +114,7 @@ export class View {
     c.updateProjectionMatrix(); c.updateMatrixWorld();
     const u = this.postMat.uniforms;
     u.res.value.set(w, h); u.aspect.value = w / h;
+    this.labeler.resize(w, h);
   }
 
   private updateLight(S: Settings) {
@@ -119,7 +126,9 @@ export class View {
     const tilt = Math.atan(S.shadow / 44);
     l.target.position.set(0, 0, Lcm / 2);
     l.position.copy(l.target.position).addScaledVector(hdir, Math.sin(tilt) * 300).add(new THREE.Vector3(0, Math.cos(tilt) * 300, 0));
-    l.intensity = 1.05;
+    l.intensity = 1.05 * S.keyLight;
+    this.world.hemi.intensity = 0.25 * S.fill;
+    this.world.scene.environmentIntensity = 0.32 * S.fill;
     const ext = Math.max(S.fov * MM, Lcm) * 0.62 + 12;
     const sc = l.shadow.camera;
     sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 50; sc.far = 600;
@@ -152,7 +161,8 @@ export class View {
     // sensor and lens
     const u = this.postMat.uniforms;
     u.tex.value = this.rtAcc.texture;
-    u.k.value = S.distortion; u.gain.value = S.gain; u.vignette.value = S.vignette; u.noise.value = S.noise;
+    u.k.value = S.distortion; u.gain.value = S.gain; u.contrast.value = S.contrast; u.uneven.value = S.uneven;
+    const la = (S.lightAng * Math.PI) / 180; u.hot.value.set(0.5 + 0.25 * Math.cos(la), 0.5 - 0.25 * Math.sin(la)); u.vignette.value = S.vignette; u.noise.value = S.noise;
     const wb = tempMul(S.temp); u.wb.value.set(wb[0], wb[1], wb[2]);
     // 120 Hz light flicker read out by a rolling shutter; exposures past one period average it away
     u.flick.value = S.flicker * 0.55 * clamp(1 - S.exposure / 8.33, 0, 1);
@@ -165,7 +175,15 @@ export class View {
     const g = this.ctx;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(r.domElement, 0, 0);
+    this.last = S.overlay !== "off" ? this.computeLabels(S) : [];
     this.drawOverlays(S);
+  }
+
+  /** Pixel-accurate labels for the frame just rendered (visible parts only). */
+  computeLabels(S: Settings): Label[] {
+    this.world.pose(0);
+    this.labeler.render(this.renderer, this.world, this.cam, S);
+    return this.labeler.extract(this.world, S);
   }
 
   // ---------------- projection helpers ----------------
@@ -184,21 +202,6 @@ export class View {
     }
     return [ox * this.W, (1 - oy) * this.H];
   }
-  boxOf(o: Egg | Flat): [number, number, number, number] | null {
-    const pts = this.world.outline(o, []);
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const p of pts) { const [x, y] = this.toPx(p); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(this.W, x1); y1 = Math.min(this.H, y1);
-    if (x1 - x0 < 2 || y1 - y0 < 2) return null;
-    return [x0, y0, x1 - x0, y1 - y0];
-  }
-  labeled() {
-    const out: [Egg | Flat, [number, number, number, number]][] = [];
-    for (const o of this.world.eggs) { const b = this.boxOf(o); if (b) out.push([o, b]); }
-    for (const o of this.world.flats) if (o.kind !== "manure") { const b = this.boxOf(o); if (b) out.push([o, b]); }
-    return out;
-  }
-
   private drawOverlays(S: Settings) {
     const g = this.ctx, W = this.W, H = this.H, w = this.world;
     const u = Math.max(1, H / 720);
@@ -217,14 +220,22 @@ export class View {
       }
       g.globalAlpha = 1;
     }
-    if (S.boxes) {
+    if (S.overlay !== "off") {
       g.lineWidth = 1.5 * u; g.font = mono(11); g.textBaseline = "bottom";
-      for (const [o, b] of this.labeled()) {
-        const col = CLS_COL[o.cls]; g.strokeStyle = col; g.strokeRect(b[0] + 0.5, b[1] + 0.5, b[2], b[3]);
-        if (S.labels) {
-          const t = `${o.cls} ${o.id}`, tw = g.measureText(t).width + 6 * u;
-          g.fillStyle = col; g.fillRect(b[0], b[1] - 14 * u, tw, 14 * u);
-          g.fillStyle = "#0b0d0e"; g.fillText(t, b[0] + 3 * u, b[1] - 2 * u);
+      for (const L of this.last) {
+        const col = CLS_COL[L.class] ?? "#fff"; g.strokeStyle = col;
+        if (S.overlay === "bbox") g.strokeRect(L.bbox[0] + 0.5, L.bbox[1] + 0.5, L.bbox[2] - 1, L.bbox[3] - 1);
+        const shape = S.overlay === "obb" ? [L.obb] : S.overlay === "seg" ? L.polygons : [];
+        for (const poly of shape) {
+          g.beginPath(); poly.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+          if (S.overlay === "seg") { g.fillStyle = col; g.globalAlpha = 0.18; g.fill(); g.globalAlpha = 1; }
+          g.stroke();
+        }
+        if (S.labels && L.class !== "dirt") {
+          const t = `${L.class} ${L.id}`, tw = g.measureText(t).width + 6 * u;
+          const tx = L.bbox[0], ty = Math.max(14 * u, L.bbox[1]);
+          g.fillStyle = col; g.fillRect(tx, ty - 14 * u, tw, 14 * u);
+          g.fillStyle = "#0b0d0e"; g.fillText(t, tx + 3 * u, ty - 2 * u);
         }
       }
     }

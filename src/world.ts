@@ -1,11 +1,11 @@
 // Physics (Rapier) and scene objects (Three). World units are centimetres; settings are in mm.
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
-import type { Settings } from "./settings";
+import { Settings, shadeHSL } from "./settings";
 import { mulberry32, rr, gaussR, clamp, modp, TAU, Rand } from "./rng";
 import {
   EggLook, eggTexture, eggRadius, eggAxial, beltTiles, TILE_MM, steelTexture, stapleTexture,
-  stainSprite, featherSprite, manureSprite, brokenSprite, Sprite,
+  stainSprite, featherSprite, manureSprite, brokenSprite, Sprite, isPerforated,
 } from "./textures";
 
 export const MM = 0.1;
@@ -42,6 +42,7 @@ function decal(spr: Sprite, opts: Partial<THREE.MeshStandardMaterialParameters> 
 }
 function disposeObj(o: THREE.Object3D) {
   o.traverse((n: any) => {
+    n.userData.dirt?.dispose(); n.userData.idMat?.dispose();
     if (n.geometry) n.geometry.dispose();
     if (n.material) { const m = n.material; for (const k of ["map", "bumpMap", "roughnessMap"]) m[k]?.dispose(); m.dispose(); }
   });
@@ -55,7 +56,7 @@ export class World {
   rng: Rand = Math.random;
   eggs: Egg[] = []; flats: Flat[] = []; stains: Stain[] = [];
   beltPos = 0; simTime = 0; vBelt = 0; nextId = 1; spawnTimer = 0; relTokens = 0; trailT = 0;
-  counted = 0; countTimes: number[] = []; tally = { dirty: 0, cracked: 0, broken: 0 }; rateT0 = 0;
+  counted = 0; countTimes: number[] = []; tally = { dirty: 0, broken: 0 }; rateT0 = 0;
   Lcm = 40; // view length along the belt, on the belt plane
 
   private beltBody!: RAPIER.RigidBody; private railBodies: RAPIER.RigidBody[] = [];
@@ -64,6 +65,7 @@ export class World {
   private beltMat!: THREE.MeshStandardMaterial; private beltTex: THREE.Texture[] = []; private beltTexType = "";
   private wallMesh!: THREE.Mesh; private splice!: THREE.Mesh;
   light = new THREE.DirectionalLight(0xffffff, 1.0);
+  hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 0.25);
   private steel: THREE.MeshStandardMaterial;
 
   constructor(S: Settings) {
@@ -77,7 +79,7 @@ export class World {
     l.castShadow = true; l.shadow.mapSize.set(2048, 2048);
     l.shadow.bias = -0.0004; l.shadow.normalBias = 0.02;
     this.scene.add(l, l.target);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.25));
+    this.scene.add(this.hemi);
   }
 
   // ---------------- setup ----------------
@@ -113,7 +115,7 @@ export class World {
       const T = Math.min(14, (this.Lcm + 40) / v);
       for (let t = 0; t < T; t += 1 / 120) this.step(1 / 120);
     }
-    this.counted = 0; this.countTimes = []; this.tally = { dirty: 0, cracked: 0, broken: 0 }; this.rateT0 = this.simTime;
+    this.counted = 0; this.countTimes = []; this.tally = { dirty: 0, broken: 0 }; this.rateT0 = this.simTime;
     for (const e of this.eggs) e.trail.length = 0;
   }
 
@@ -143,6 +145,14 @@ export class World {
     const beltLen = 600;
     const belt = new THREE.Mesh(new THREE.PlaneGeometry(S.beltW * MM, beltLen), this.beltMat);
     belt.rotation.x = -Math.PI / 2; belt.position.z = this.Lcm / 2; belt.receiveShadow = true;
+    if (isPerforated(S.beltType)) {
+      belt.castShadow = true;
+      const st = new THREE.CanvasTexture(steelTexture()); st.colorSpace = THREE.SRGBColorSpace;
+      st.wrapS = st.wrapT = THREE.RepeatWrapping; st.repeat.set(S.beltW / 120, beltLen / 12);
+      const bed = new THREE.Mesh(new THREE.PlaneGeometry(S.beltW * MM + 2, beltLen), new THREE.MeshStandardMaterial({ map: st, color: 0x6a6e70, metalness: 0.7, roughness: 0.55 }));
+      bed.rotation.x = -Math.PI / 2; bed.position.set(0, -0.45, this.Lcm / 2); bed.receiveShadow = true;
+      this.statics.add(bed);
+    }
     for (const t of this.beltTex) t.repeat.set(S.beltW / TILE_MM, (beltLen * 10) / TILE_MM);
     this.statics.add(belt);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x1c1e20, roughness: 0.95 }));
@@ -162,7 +172,7 @@ export class World {
     if (!this.splice) {
       const st = new THREE.CanvasTexture(stapleTexture()); st.colorSpace = THREE.SRGBColorSpace; st.wrapS = THREE.RepeatWrapping;
       this.splice = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.8), new THREE.MeshStandardMaterial({ map: st, transparent: true, metalness: 0.6, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2 }));
-      this.splice.rotation.x = -Math.PI / 2;
+      this.splice.rotation.x = -Math.PI / 2; this.splice.userData.kind = "splice";
     }
     this.splice.scale.x = S.beltW * MM;
     (this.splice.material as any).map.repeat.set(S.beltW / 6.5, 1);
@@ -179,7 +189,11 @@ export class World {
     const bm = new THREE.CanvasTexture(bump);
     for (const t of [map, bm]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; }
     this.beltTex = [map, bm];
-    this.beltMat = new THREE.MeshStandardMaterial({ map, bumpMap: bm, bumpScale: S.beltType === "rubber" ? 0.3 : 1.2, roughness: S.beltType === "rubber" ? 0.55 : 0.82 });
+    const perf = isPerforated(S.beltType);
+    this.beltMat = new THREE.MeshStandardMaterial({
+      map, bumpMap: bm, bumpScale: S.beltType === "rubber" ? 0.3 : perf ? 2 : 1.2,
+      roughness: S.beltType === "rubber" ? 0.55 : perf ? 0.5 : 0.82, alphaTest: perf ? 0.5 : 0,
+    });
     this.beltTexType = S.beltType;
   }
 
@@ -260,10 +274,11 @@ export class World {
     const S = this.S, r = this.rng;
     const len = clamp(S.size + gaussR(r) * S.sizeVar, 40, 76);
     const si = clamp(0.765 + gaussR(r) * 0.02, 0.7, 0.83);
-    const brown = r() < S.brown;
+    const shade = rr(r, Math.min(S.shadeLo, S.shadeHi), Math.max(S.shadeLo, S.shadeHi));
+    const [h, sat, l] = shadeHSL(shade);
     return {
       seed: (r() * 2 ** 32) >>> 0, a: len / 2, b: (len * si) / 2, k: clamp(0.08 + gaussR(r) * 0.025, 0.02, 0.15),
-      brown, h: brown ? rr(r, 17, 31) : rr(r, 38, 50), sat: brown ? rr(r, 26, 48) : rr(r, 12, 30), l: brown ? rr(r, 48, 68) : rr(r, 89, 95),
+      brown: shade > 0.35, h: h + rr(r, -2, 2), sat: sat + rr(r, -4, 4), l: l + rr(r, -2, 2),
       dirty: r() < S.dirty, cracked: r() < S.cracked,
     };
   }
@@ -278,11 +293,15 @@ export class World {
     const N = 30;
     for (let i = 0; i <= N; i++) { const t = (i / N) * Math.PI; prof.push(new THREE.Vector2(Math.max(0, eggRadius(ec, t)), eggAxial(ec, t))); }
     const geo = new THREE.LatheGeometry(prof, 40);
-    const tex = new THREE.CanvasTexture(eggTexture(look, this.texSize));
+    const painted = eggTexture(look, this.texSize);
+    const tex = new THREE.CanvasTexture(painted.color);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.wrapS = THREE.RepeatWrapping;
     const mat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: look.brown ? 0.58 : 0.5, clearcoat: 0.08, clearcoatRoughness: 0.5, sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff) });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = mesh.receiveShadow = true;
+    if (look.dirty) mesh.userData.dirt = new THREE.CanvasTexture(painted.dirt);
+    const id = this.nextId++;
+    mesh.userData.kind = "egg"; mesh.userData.oid = id & 0xffff;
     this.dyn.add(mesh);
     // physics: convex hull of the same profile
     const pts: number[] = [];
@@ -307,16 +326,17 @@ export class World {
       RAPIER.ColliderDesc.convexHull(hull)!.setDensity(1.05).setFriction(0.45).setRestitution(S.bounce).setCollisionGroups(EGG_GROUPS),
       body,
     );
-    const cls = look.cracked ? "cracked" : look.dirty ? "dirty" : "egg";
+    const cls = look.dirty ? "dirty" : "egg";
     this.eggs.push({
-      kind: "egg", id: this.nextId++, cls, look, a, b, body, col, mesh, hull, counted: false, prevZ: z, released: false, trail: [],
+      kind: "egg", id, cls, look, a, b, body, col, mesh, hull, counted: false, prevZ: z, released: false, trail: [],
       p: new THREE.Vector3(x, b, z), q: qq.clone(), lv: new THREE.Vector3(), av: new THREE.Vector3(),
     });
   }
 
   private spawnBroken(x: number, z: number) {
-    const r = this.rng, S = this.S, brown = r() < S.brown;
-    const spec = { seed: (r() * 2 ** 32) >>> 0, h: brown ? rr(r, 17, 31) : rr(r, 38, 50), sat: brown ? rr(r, 34, 58) : rr(r, 12, 30), l: brown ? rr(r, 46, 68) : rr(r, 89, 95) };
+    const r = this.rng, S = this.S;
+    const [h, sat, l] = shadeHSL(rr(r, Math.min(S.shadeLo, S.shadeHi), Math.max(S.shadeLo, S.shadeHi)));
+    const spec = { seed: (r() * 2 ** 32) >>> 0, h, sat, l };
     const spr = brokenSprite(spec);
     const g = new THREE.Group();
     const d = decal(spr, { roughness: 0.25 }); d.rotation.x = -Math.PI / 2; d.position.y = 0.04; g.add(d);
@@ -324,10 +344,11 @@ export class World {
     const yolk = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 16), new THREE.MeshPhysicalMaterial({ color: 0xf2a114, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05 }));
     yolk.scale.set(yr * MM * sm, yr * MM * 0.45, yr * MM);
     yolk.position.set(yx * MM, 0.05, yy * MM); yolk.castShadow = true; g.add(yolk);
-    const ang = r() * TAU;
+    const ang = r() * TAU, id = this.nextId++;
+    for (const m of [d, yolk]) { m.userData.kind = "broken"; m.userData.oid = id & 0xffff; }
     g.rotation.y = ang; g.position.set(x, 0, z);
     this.dyn.add(g);
-    this.flats.push({ kind: "broken", id: this.nextId++, cls: "broken", x, z, ang, obj: g, hw: 4.2, hl: 4.2, counted: false, prevZ: z, trail: [] });
+    this.flats.push({ kind: "broken", id, cls: "broken", x, z, ang, obj: g, hw: 4.2, hl: 4.2, counted: false, prevZ: z, trail: [] });
   }
   private spawnDebris(kind: "feather" | "manure") {
     const r = this.rng, S = this.S, half = (S.beltW * MM) / 2 - 0.8;
@@ -335,7 +356,7 @@ export class World {
     let m: THREE.Mesh, hw: number, hl: number;
     if (kind === "feather") {
       const down = r() < 0.35;
-      const spec = { seed: (r() * 2 ** 32) >>> 0, len: down ? rr(r, 18, 34) : rr(r, 30, 75), down, white: r() < 0.4 + 0.6 * (1 - S.brown) };
+      const spec = { seed: (r() * 2 ** 32) >>> 0, len: down ? rr(r, 18, 34) : rr(r, 30, 75), down, white: r() < 0.4 + 0.6 * (1 - (S.shadeLo + S.shadeHi) / 2) };
       m = decal(featherSprite(spec), { roughness: 0.95, side: THREE.DoubleSide, alphaTest: 0.02 });
       m.castShadow = true;
       hl = (down ? spec.len * 0.35 : spec.len * 0.5) * MM; hw = (down ? spec.len * 0.35 : spec.len * 0.22) * MM;
@@ -346,9 +367,11 @@ export class World {
       hl = hw = spec.size * MM; m.position.y = 0.06;
     }
     m.rotation.set(-Math.PI / 2, 0, ang);
+    const id = this.nextId++;
+    m.userData.kind = kind; m.userData.oid = id & 0xffff;
     const g = new THREE.Group(); g.add(m); g.position.set(x, 0, z);
     this.dyn.add(g);
-    this.flats.push({ kind, id: this.nextId++, cls: kind, x, z, ang, obj: g, hw, hl, counted: true, prevZ: z, trail: [] });
+    this.flats.push({ kind, id, cls: kind, x, z, ang, obj: g, hw, hl, counted: true, prevZ: z, trail: [] });
   }
 
   // ---------------- stepping ----------------
@@ -360,8 +383,11 @@ export class World {
     this.beltPos += v * dt; this.simTime += dt;
     // belt is a velocity-driven kinematic slab; teleport it back now and then (it is featureless)
     const bt = this.beltBody.translation();
-    if (bt.z > 100) this.beltBody.setTranslation({ x: 0, y: -0.5, z: bt.z - 200 }, true);
-    this.beltBody.setLinvel({ x: 0, y: 0, z: v }, true);
+    // vibration: the belt itself shakes side to side and up and down; position is re-centred so it can't drift
+    const vib = S.vibration, ts = this.simTime;
+    if (bt.z > 100 || Math.abs(bt.x) > 0.3 || Math.abs(bt.y + 0.5) > 0.3) this.beltBody.setTranslation({ x: 0, y: -0.5, z: bt.z > 100 ? bt.z - 200 : bt.z }, true);
+    const shake = v > 0 || S.stopGo ? vib : 0;
+    this.beltBody.setLinvel({ x: shake * 9 * Math.sin(TAU * 11 * ts), y: shake * 5 * Math.cos(TAU * 17 * ts), z: v }, true);
 
     // arrivals keep coming even when the belt is stopped; crowded spots simply refuse new eggs
     const meanGroup = 1 / (1 - S.clump * 0.9);
@@ -375,14 +401,14 @@ export class World {
     if (r() < S.manure * dist) this.spawnDebris("manure");
 
     // disturbances
-    const vib = S.vibration, sq = Math.sqrt(dt);
+    const sq = Math.sqrt(dt);
     for (const e of this.eggs) {
       const m = e.body.mass();
-      if (vib > 0 && v > 0) e.body.applyImpulse({ x: gaussR(r) * vib * 2.2 * sq * m, y: 0, z: gaussR(r) * vib * 1.2 * sq * m }, true);
-      if (S.bumps > 0 && r() < S.bumps * 0.5 * dt) {
-        const th = r() * TAU, dv = rr(r, 6, 30);
-        e.body.applyImpulse({ x: Math.cos(th) * dv * m, y: rr(r, 0, 8) * m, z: Math.sin(th) * dv * m }, true);
-        e.body.applyTorqueImpulse({ x: gaussR(r) * m * 2, y: gaussR(r) * m * 2, z: gaussR(r) * m * 2 }, true);
+      if (vib > 0) e.body.applyImpulse({ x: gaussR(r) * vib * 7 * sq * m, y: 0, z: gaussR(r) * vib * 5 * sq * m }, true);
+      if (S.bumps > 0 && r() < S.bumps * 0.6 * dt) {
+        const th = r() * TAU, dv = rr(r, 10, 45);
+        e.body.applyImpulse({ x: Math.cos(th) * dv * m, y: rr(r, 0, 12) * m, z: Math.sin(th) * dv * m }, true);
+        e.body.applyTorqueImpulse({ x: gaussR(r) * m * 6, y: gaussR(r) * m * 6, z: gaussR(r) * m * 6 }, true);
       }
     }
     // gate releases one egg at a time
@@ -409,7 +435,7 @@ export class World {
     }
     for (const f of this.flats) {
       f.prevZ = f.z; f.z += v * dt;
-      if (f.kind === "feather" && vib > 0 && v > 0) { f.x += gaussR(r) * vib * 0.3 * sq; f.ang += gaussR(r) * vib * 0.05 * sq; }
+      if (f.kind === "feather" && vib > 0) { f.x += gaussR(r) * vib * 0.3 * sq; f.ang += gaussR(r) * vib * 0.05 * sq; }
     }
     const tally = (o: { counted: boolean; prevZ: number; cls: string }, z: number) => {
       if (o.counted || o.prevZ >= lineZ || z < lineZ) return;
@@ -460,7 +486,7 @@ export class World {
       const z = modp(s.u + bp, LOOP_CM) - 20;
       const inView = vis && z > -20 && z < this.Lcm + 20;
       if (inView && !s.mesh) {
-        s.mesh = decal(stainSprite(s.spec));
+        s.mesh = decal(stainSprite(s.spec)); s.mesh.userData.kind = "stain";
         s.mesh.rotation.set(-Math.PI / 2, 0, s.ang);
         this.statics.add(s.mesh);
       }
