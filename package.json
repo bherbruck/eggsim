@@ -9,11 +9,15 @@
     "preview": "vite preview",
     "artifact": "vite build && node scripts/artifact.mjs",
     "shot": "node scripts/shot.mjs",
-    "export": "node scripts/export.mjs"
+    "export": "node scripts/export.mjs",
+    "mcp": "node scripts/mcp-server.mjs",
+    "test:mcp": "node scripts/test-mcp.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
-    "three": "^0.186.1"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "three": "^0.186.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",

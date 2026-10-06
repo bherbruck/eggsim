@@ -13,7 +13,7 @@ export const DEFAULTS = {
   res: "1280x720", fps: 30, fov: 760, height: 900, distortion: 0.08, exposure: 2, gain: 1, temp: 4800,
   shadow: 6, softness: 0.5, lightAng: 135, keyLight: 1, fill: 1, contrast: 1, uneven: 0, vignette: 0.35, noise: 0.25, flicker: 0,
   // overlay
-  eggClasses: "single", labelDirt: true, labelBroken: true, labelFeather: false,
+  eggClasses: "single", labelDirt: true, labelBroken: true, labelFeather: false, labelMinPx: 60, labelMinVisible: 0.15,
   overlay: "off", labels: true, tracks: false, osd: false, countLine: false, linePos: 0.5,
 };
 export type Settings = typeof DEFAULTS;
@@ -97,6 +97,8 @@ export const CONTROLS: [string, Control][] = [
   ["Labels", { k: "labelDirt", label: "Label dirt patches as dirt", type: "toggle" }],
   ["Labels", { k: "labelBroken", label: "Label broken eggs as broken", type: "toggle" }],
   ["Labels", { k: "labelFeather", label: "Label feathers as feather", type: "toggle" }],
+  ["Labels", { k: "labelMinPx", label: "Skip objects smaller than", min: 0, max: 2000, step: 10, f: (v) => v + " px" }],
+  ["Labels", { k: "labelMinVisible", label: "Skip eggs less visible than", min: 0, max: 0.9, step: 0.05, f: (v) => Math.round(v * 100) + "%" }],
   ["Labels", { k: "overlay", label: "Show labels on the feed", type: "select", options: [["off", "Off"], ["bbox", "Boxes"], ["obb", "Rotated boxes"], ["seg", "Segmentation outlines"]] }],
   ["Labels", { k: "labels", label: "Class names on the feed", type: "toggle" }],
   ["Labels", { k: "tracks", label: "Track trails on the feed", type: "toggle" }],
@@ -108,7 +110,7 @@ export const CONTROLS: [string, Control][] = [
 
 // Settings that need the camera, render targets or static geometry rebuilt.
 export const CAMERA_KEYS = ["res", "fov", "flow", "height"];
-export const OVERLAY_KEYS = ["osd", "overlay", "labels", "countLine", "linePos", "tracks", "seed", "eggClasses", "labelDirt", "labelBroken", "labelFeather"];
+export const OVERLAY_KEYS = ["osd", "overlay", "labels", "countLine", "linePos", "tracks", "seed", "eggClasses", "labelDirt", "labelBroken", "labelFeather", "labelMinPx", "labelMinVisible"];
 
 /** Class names in id order for the current label settings. */
 export function classNames(S: Settings) {

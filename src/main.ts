@@ -198,6 +198,7 @@ function restart() {
   requestAnimationFrame(() => setTimeout(() => {
     if (token !== restartToken) return; // a newer restart is queued
     world.restart();
+    sessionId = newId(); frameIndex = 0;
     ready = true;
     view.render(S, world.simTime);
     updateStats();
@@ -231,25 +232,83 @@ function stepFrame() {
 
 let toastT = 0;
 function toast(msg: string) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = window.setTimeout(() => (t.hidden = true), 2400); }
-function frameLabels(withImage = false) {
-  const labels = view.computeLabels(S);
+// ---------------- capture (shared by the Copy button, the API, the export script and the MCP server) ----------------
+let sessionId = newId(), frameIndex = 0;
+function newId() { return globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+type CaptureOpts = {
+  image?: boolean; labels?: boolean; mask?: boolean; ids?: boolean;
+  shapes?: ("bbox" | "obb" | "polygon")[]; meta?: boolean;
+  /** Preview options for the returned image only; labels stay in full-resolution pixels. */
+  imageScale?: number; imageFormat?: "png" | "jpeg";
+};
+/**
+ * The current camera frame and its ground truth. Labels cover visible pixels only; objects below the
+ * size/visibility thresholds are left out, and `visible_fraction` says how much of each egg shows.
+ * With `ids`, each object has a `track_id` that stays the same for the whole session and an
+ * `instance_id` (1..N in this frame) that matches the value in the instance mask.
+ */
+function capture(o: CaptureOpts = {}) {
+  const { image = false, labels = true, mask = false, ids = true, shapes = ["bbox", "obb", "polygon"], meta = true, imageScale = 1, imageFormat = "png" } = o;
+  const L = labels || mask ? view.computeLabels(S) : [];
   const eggs = new Map(world.eggs.map((e) => [e.id, e]));
-  return {
-    frame: view.frameNo, sim_time_s: +world.simTime.toFixed(4), width: view.W, height: view.H,
-    px_per_mm_belt_plane: +view.scale.toFixed(4), classes: classNames(S),
-    ...(withImage ? { image: view.renderer.domElement.toDataURL("image/png") } : {}),
-    objects: labels.map((L) => {
-      const e = L.class !== "dirt" ? eggs.get(L.id) : undefined;
-      return {
-        ...L,
-        ...(e ? {
-          length_mm: +(e.a * 20).toFixed(1), width_mm: +(e.b * 20).toFixed(1), dirty: e.look.dirty, cracked: e.look.cracked,
-          velocity_mm_s: [+(e.lv.x * 10).toFixed(1), +(e.lv.z * 10).toFixed(1)], rolling: e.av.length() > 1.5, on_top_of_another: e.p.y > e.b * 1.5,
-        } : {}),
-      };
-    }),
+  const inst = new Map<number, number>();
+  L.forEach((l) => { if (l.class !== "dirt") inst.set(l.id, inst.size + 1); });
+  const out: any = {
+    session_id: sessionId, frame_index: frameIndex, sim_time_s: +world.simTime.toFixed(4),
+    width: view.W, height: view.H, px_per_mm_belt_plane: +view.scale.toFixed(4), classes: classNames(S),
   };
+  if (image) {
+    const src = view.renderer.domElement;
+    if (imageScale === 1 && imageFormat === "png") out.image = src.toDataURL("image/png");
+    else {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(src.width * imageScale)); c.height = Math.max(1, Math.round(src.height * imageScale));
+      const g = c.getContext("2d")!; g.imageSmoothingQuality = "high"; g.drawImage(src, 0, 0, c.width, c.height);
+      out.image = c.toDataURL(`image/${imageFormat}`, 0.9);
+    }
+  }
+  if (labels) {
+    out.objects = L.map((l) => {
+      const e = l.class !== "dirt" ? eggs.get(l.id) : undefined;
+      const obj: any = { class: l.class, class_id: l.class_id };
+      if (ids) {
+        if (l.class === "dirt") { obj.track_id = l.id; obj.parent_track_id = l.parent; obj.parent_instance_id = inst.get(l.parent!) ?? null; }
+        else { obj.track_id = l.id; obj.instance_id = inst.get(l.id); }
+        obj.global_track_id = `${sessionId}:${l.id}`;
+      }
+      if (shapes.includes("bbox")) obj.bbox_xywh = l.bbox;
+      if (shapes.includes("obb")) obj.obb_xy = l.obb;
+      if (shapes.includes("polygon")) obj.polygons = l.polygons;
+      obj.area_px = l.area; obj.truncated = l.truncated;
+      if (l.visible_fraction !== undefined) obj.visible_fraction = l.visible_fraction;
+      if (meta && e) Object.assign(obj, {
+        length_mm: +(e.a * 20).toFixed(1), width_mm: +(e.b * 20).toFixed(1), dirty: e.look.dirty, cracked: e.look.cracked,
+        velocity_mm_s: [+(e.lv.x * 10).toFixed(1), +(e.lv.z * 10).toFixed(1)], rolling: e.av.length() > 1.5, on_top_of_another: e.p.y > e.b * 1.5,
+      });
+      return obj;
+    });
+  }
+  if (mask) out.instance_mask = instanceMask(inst);
+  return out;
 }
+/** PNG where red + 256 × green is the instance id (0 = background). Dirt patches are not in the mask. */
+function instanceMask(inst: Map<number, number>) {
+  const { W, H, buf } = view.labeler;
+  const by16 = new Map<number, number>(); inst.forEach((v, k) => by16.set(k & 0xffff, v));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d")!, img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W;
+    for (let x = 0; x < W; x++) {
+      const o = (src + x) * 4, id = buf[o] | (buf[o + 1] << 8), v = id ? by16.get(id) ?? 0 : 0, d = (y * W + x) * 4;
+      img.data[d] = v & 255; img.data[d + 1] = v >> 8; img.data[d + 2] = 0; img.data[d + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return c.toDataURL("image/png");
+}
+const frameLabels = (withImage = false) => capture({ image: withImage });
 
 $("#play").addEventListener("click", () => setPaused(!paused));
 $("#step").addEventListener("click", stepFrame);
@@ -268,11 +327,46 @@ window.addEventListener("keydown", (ev) => {
 });
 
 // For automated checks and dataset scripts.
+const waitReady = () => new Promise<void>((res) => { const t = () => (ready ? res() : setTimeout(t, 25)); t(); });
+const advance = (seconds: number) => {
+  const n = Math.max(1, Math.round(seconds / DT));
+  for (let i = 0; i < n; i++) world.step(DT);
+  frameIndex++;
+  view.render(S, world.simTime);
+};
+/** Stable programmatic API (version 1) for agents, the export script and the MCP server. */
+const api = {
+  version: 1,
+  presets: () => Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, v.label])),
+  /** Every setting with its range or options. */
+  schema: () => CONTROLS.map(([group, c]) => ({ group, key: c.k, ...(c.k2 ? { key2: c.k2 } : {}), label: c.label, type: c.type ?? "range", min: c.min, max: c.max, step: c.step, options: c.options?.map(([v]) => v) })),
+  settings: () => ({ ...S }),
+  /** Starts a new session (new session_id, track ids restart) from an optional preset plus overrides. */
+  async startSession(opts: { preset?: string; settings?: Partial<Settings>; seed?: number } = {}) {
+    let base: Partial<Settings> = { ...S };
+    if (opts.preset) {
+      if (!(opts.preset in PRESETS)) throw new Error(`Unknown preset "${opts.preset}". Use one of: ${Object.keys(PRESETS).join(", ")}`);
+      const { label, ...v } = PRESETS[opts.preset]; base = { ...BASE, ...v, preset: opts.preset };
+    }
+    applySettings({ ...base, ...(opts.settings ?? {}), ...(opts.seed !== undefined ? { seed: opts.seed } : {}) });
+    await waitReady();
+    setPaused(true);
+    return { session_id: sessionId, classes: classNames(S), width: view.W, height: view.H, settings: { ...S } };
+  },
+  /** Changes settings without restarting (camera, lighting, labels, flow rate...). */
+  set(vals: Partial<Settings>) {
+    Object.assign(S, vals); syncControls(); view.configure(S); world.buildStatics(); world.applyMaterialSettings(); save();
+    return { classes: classNames(S) };
+  },
+  /** Advances simulated time and renders the next camera frame. */
+  step(seconds = 1 / 30) { advance(seconds); return { session_id: sessionId, frame_index: frameIndex, sim_time_s: +world.simTime.toFixed(4) }; },
+  capture,
+};
 (window as any).eggsim = {
-  S, world, view, setPaused, frameLabels, reconfigure, restart, applySettings, PRESETS, BASE,
+  api, S, world, view, setPaused, frameLabels, reconfigure, restart, applySettings, PRESETS, BASE,
   ready: () => ready,
   /** Advance `seconds` of simulation, then render one camera frame. */
-  advance: (seconds: number) => { const n = Math.max(1, Math.round(seconds / DT)); for (let i = 0; i < n; i++) world.step(DT); view.render(S, world.simTime); },
+  advance,
   step: (n = 1) => { for (let i = 0; i < n; i++) world.step(DT); view.render(S, world.simTime); },
 };
 

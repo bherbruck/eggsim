@@ -4,7 +4,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import type { Settings } from "./settings";
 import { World, MM } from "./world";
 import { clamp, TAU } from "./rng";
-import { Labeler, Label } from "./labels";
+import { Labeler, Label, hull, polyArea } from "./labels";
 
 const QUAD_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
@@ -181,9 +181,24 @@ export class View {
 
   /** Pixel-accurate labels for the frame just rendered (visible parts only). */
   computeLabels(S: Settings): Label[] {
-    this.world.pose(0);
+    // middle of the exposure, where a motion-blurred egg is centred in the image
+    this.world.pose(S.exposure / 2000);
     this.labeler.render(this.renderer, this.world, this.cam, S);
-    return this.labeler.extract(this.world, S);
+    const labels = this.labeler.extract(this.world, S);
+    const eggs = new Map(this.world.eggs.map((e) => [e.id, e]));
+    const kept: Label[] = [], dropped = new Set<number>();
+    for (const L of labels) {
+      if (L.class === "dirt") continue;
+      const e = eggs.get(L.id);
+      if (e) {
+        const full = polyArea(hull(this.world.outline(e, []).map((p) => this.toPx(p))));
+        L.visible_fraction = +Math.min(1, L.area / Math.max(1, full)).toFixed(3);
+      }
+      if (L.area < S.labelMinPx || (L.visible_fraction ?? 1) < S.labelMinVisible) dropped.add(L.id);
+      else kept.push(L);
+    }
+    for (const L of labels) if (L.class === "dirt" && !dropped.has(L.parent!)) kept.push(L);
+    return kept;
   }
 
   // ---------------- projection helpers ----------------

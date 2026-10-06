@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "eggsim": {
+      "command": "node",
+      "args": ["scripts/mcp-server.mjs"]
+    }
+  }
+}

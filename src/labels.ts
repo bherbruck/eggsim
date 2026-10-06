@@ -10,6 +10,8 @@ export type Pt = [number, number];
 export type Label = {
   id: number; class: string; class_id: number; parent?: number;
   bbox: [number, number, number, number]; obb: Pt[]; polygons: Pt[][]; area: number; truncated: boolean;
+  /** Visible pixels / full projected outline (eggs only); occlusion and the frame edge both reduce it. */
+  visible_fraction?: number;
 };
 
 const ID_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -206,7 +208,7 @@ function simplify(pts: Pt[], eps: number): Pt[] {
   return pts.filter((_, i) => keep[i]);
 }
 
-function hull(pts: Pt[]): Pt[] {
+export function hull(pts: Pt[]): Pt[] {
   const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   if (p.length < 3) return p;
   const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
@@ -254,4 +256,10 @@ function shapeOf(mask: Uint8Array, w: number, h: number, ox: number, oy: number,
   }
   const obb = principalRect(mask, w, h, ox, oy, hull(all)).map(([x, y]) => [+x.toFixed(1), +y.toFixed(1)] as Pt);
   return { bbox: [x0, y0, x1 - x0, y1 - y0] as [number, number, number, number], obb, polygons, area };
+}
+
+export function polyArea(p: Pt[]) {
+  let a = 0;
+  for (let i = 0; i < p.length; i++) { const [x0, y0] = p[i], [x1, y1] = p[(i + 1) % p.length]; a += x0 * y1 - x1 * y0; }
+  return Math.abs(a) / 2;
 }
