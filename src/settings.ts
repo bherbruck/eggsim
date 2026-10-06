@@ -1,7 +1,7 @@
 export const DEFAULTS = {
   preset: "cross", seed: 7,
   // belt
-  beltType: "pp", beltW: 600, speed: 10, flow: "down", beltDirt: 0.35, vibration: 0.3,
+  beltType: "pp", beltW: 600, speed: 10, flow: "down", beltDirt: 0.35, vibration: 0.3, rodPitch: 32, rodDia: 10, rodSpin: false,
   // eggs
   rate: 30000, clump: 0.35, lateral: "uniform", align: 0.2, size: 58, sizeVar: 2.2, shadeLo: 0.5, shadeHi: 0.95,
   // motion and jams
@@ -23,7 +23,7 @@ export const BASE: Partial<Settings> = {
   exposure: 2, gain: 1, temp: 4800, shadow: 6, softness: 0.5, keyLight: 1, fill: 1, contrast: 1, uneven: 0, vignette: 0.35, noise: 0.25, flicker: 0,
   vibration: 0.3, size: 58, sizeVar: 2.2, shadeLo: 0.5, shadeHi: 0.95, height: 900, distortion: 0.08,
   rollIn: 0.3, rollEase: 0.6, bounce: 0.12, bumps: 0.05, stopGo: false, stopCycle: 12,
-  backup: false, release: 12000, wallPos: 1.05, cracked: 0.03,
+  backup: false, release: 12000, wallPos: 1.05, cracked: 0.03, rodPitch: 32, rodDia: 10, rodSpin: false,
 };
 
 export const PRESETS: Record<string, Partial<Settings> & { label: string }> = {
@@ -33,6 +33,7 @@ export const PRESETS: Record<string, Partial<Settings> & { label: string }> = {
   jam: { label: "Backup at transfer", beltType: "pp", beltW: 500, speed: 9, flow: "down", rate: 26000, clump: 0.5, lateral: "uniform", align: 0.3, fov: 640, res: "1280x720", dirty: 0.05, broken: 0.006, feathers: 1, manure: 3, beltDirt: 0.4, backup: true, release: 14000, wallPos: 0.82, bumps: 0.1 },
   tracker: { label: "Tracker torture test", beltType: "ppold", beltW: 450, speed: 9, flow: "down", rate: 34000, clump: 0.85, lateral: "edges", align: 0.3, fov: 560, res: "1280x720", dirty: 0.08, broken: 0.01, feathers: 2, manure: 6, beltDirt: 0.6, rollIn: 1, rollEase: 1, bounce: 0.3, bumps: 1, vibration: 1.6, stopGo: true, stopCycle: 5, exposure: 5, shadeLo: 0.62, shadeHi: 0.7, backup: true, release: 20000, wallPos: 1.15 },
   rough: { label: "Rough day: dirty flock, bad light", beltType: "ppold", beltW: 400, speed: 6, flow: "down", rate: 14000, clump: 0.6, lateral: "edges", align: 0.5, fov: 520, res: "1280x960", dirty: 0.25, broken: 0.03, feathers: 6, manure: 20, beltDirt: 0.9, flicker: 0.6, noise: 0.55, gain: 0.8, exposure: 1, keyLight: 2.2, fill: 0.2, contrast: 1.35, uneven: 0.6, softness: 0.1, shadow: 14 },
+  rod: { label: "Rod conveyor, steel rods", beltType: "rod", beltW: 450, speed: 8, flow: "down", rate: 20000, clump: 0.4, lateral: "uniform", align: 0.2, fov: 560, res: "1280x720", dirty: 0.06, broken: 0.004, feathers: 1, manure: 2, rodPitch: 32, rodDia: 10, rodSpin: false, keyLight: 1.3, fill: 0.7, shadow: 8 },
   perf: { label: "Perforated belt, harsh bar light", beltType: "perf", beltW: 500, speed: 8, flow: "down", rate: 18000, clump: 0.4, lateral: "uniform", align: 0.2, fov: 620, res: "1280x720", dirty: 0.08, broken: 0.004, feathers: 1, manure: 3, beltDirt: 0.3, keyLight: 1.8, fill: 0.35, contrast: 1.2, uneven: 0.35, softness: 0.2, shadow: 10 },
 };
 
@@ -44,8 +45,11 @@ const pct = (v: number) => Math.round(v * 100) + "%";
 const pct1 = (v: number) => (v * 100).toFixed(1) + "%";
 
 export const CONTROLS: [string, Control][] = [
-  ["Belt", { k: "beltType", label: "Belt surface", type: "select", options: [["pp", "Woven PP, clean"], ["ppold", "Woven PP, aged"], ["perf", "Perforated plastic, large holes"], ["perfsmall", "Perforated plastic, small holes"], ["rubber", "Black PVC"]] }],
+  ["Belt", { k: "beltType", label: "Belt surface", type: "select", options: [["pp", "Woven PP, clean"], ["ppold", "Woven PP, aged"], ["perf", "Perforated plastic, large holes"], ["perfsmall", "Perforated plastic, small holes"], ["rubber", "Black PVC"], ["rod", "Rod conveyor, steel rods"], ["rodwhite", "Rod conveyor, white plastic rods"]] }],
   ["Belt", { k: "beltW", label: "Belt width", min: 80, max: 1200, step: 10, f: (v) => v + " mm" }],
+  ["Belt", { k: "rodPitch", label: "Rod spacing (rod conveyors)", min: 18, max: 60, step: 1, f: (v) => v + " mm" }],
+  ["Belt", { k: "rodDia", label: "Rod diameter (rod conveyors)", min: 5, max: 20, step: 0.5, f: (v) => v + " mm" }],
+  ["Belt", { k: "rodSpin", label: "Rods spin and turn eggs (rod conveyors)", type: "toggle" }],
   ["Belt", { k: "speed", label: "Belt speed", min: 0, max: 40, step: 0.5, f: (v) => v.toFixed(1) + " m/min" }],
   ["Belt", { k: "flow", label: "Flow direction in image", type: "select", options: [["down", "Top to bottom"], ["up", "Bottom to top"], ["right", "Left to right"], ["left", "Right to left"]] }],
   ["Belt", { k: "beltDirt", label: "Belt stains", min: 0, max: 1, step: 0.05, f: pct }],

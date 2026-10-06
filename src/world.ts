@@ -60,6 +60,10 @@ export class World {
   Lcm = 40; // view length along the belt, on the belt plane
 
   private beltBody!: RAPIER.RigidBody; private railBodies: RAPIER.RigidBody[] = [];
+  private rods: RAPIER.RigidBody[] = []; private rodMesh?: THREE.InstancedMesh; private beltY = -0.5; private staticsKey = "";
+  isRod() { return this.S.beltType.startsWith("rod"); }
+  /** Height of the surface eggs rest on: the top of the rods, or the belt. */
+  surfY() { return this.isRod() ? this.S.rodDia * MM : 0; }
   private wallBody!: RAPIER.RigidBody; private wallCol!: RAPIER.Collider;
   private statics = new THREE.Group(); private dyn = new THREE.Group();
   private beltMat!: THREE.MeshStandardMaterial; private beltTex: THREE.Texture[] = []; private beltTexType = "";
@@ -90,7 +94,7 @@ export class World {
     for (const s of this.stains) if (s.mesh) disposeObj(s.mesh);
     this.eggs = []; this.flats = []; this.stains = [];
     this.rw?.free();
-    this.beltBody = undefined as any; this.railBodies = []; this.wallBody = undefined as any;
+    this.beltBody = undefined as any; this.railBodies = []; this.wallBody = undefined as any; this.rods = [];
     this.rw = new RAPIER.World({ x: 0, y: -981, z: 0 });
     this.rw.timestep = 1 / 120;
     const ip: any = this.rw.integrationParameters;
@@ -125,11 +129,16 @@ export class World {
     for (const c of [...this.statics.children]) { if (c !== this.splice) disposeObj(c); }
     this.statics.clear();
     if (this.beltBody) this.rw.removeRigidBody(this.beltBody);
+    for (const b of this.rods) this.rw.removeRigidBody(b);
+    this.rods = []; this.rodMesh = undefined;
+    const rod = this.isRod();
+    this.beltY = rod ? -3 : -0.5;
+    this.staticsKey = [S.beltType, S.beltW, S.rodPitch, S.rodDia].join("|");
     for (const b of this.railBodies) this.rw.removeRigidBody(b);
     if (this.wallBody) this.rw.removeRigidBody(this.wallBody);
 
     // physics
-    this.beltBody = this.rw.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(0, -0.5, 0));
+    this.beltBody = this.rw.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(0, this.beltY, 0));
     this.rw.createCollider(RAPIER.ColliderDesc.cuboid(hw + 3, 0.5, 600).setFriction(0.9), this.beltBody);
     this.railBodies = [-1, 1].map((side) => {
       const b = this.rw.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(side * (hw + 1.1), 2, 0));
@@ -154,7 +163,29 @@ export class World {
       this.statics.add(bed);
     }
     for (const t of this.beltTex) t.repeat.set(S.beltW / TILE_MM, (beltLen * 10) / TILE_MM);
-    this.statics.add(belt);
+    if (!rod) this.statics.add(belt);
+    else {
+      belt.geometry.dispose();
+      // transverse rods carried by side chains; they are kinematic bodies that move with the chain
+      const r = (S.rodDia * MM) / 2, pitch = S.rodPitch * MM, len = S.beltW * MM;
+      const n = Math.ceil((this.Lcm + 110) / pitch), phase = modp(this.beltPos, pitch);
+      const q = { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }; // capsule axis Y -> X
+      for (let i = 0; i < n; i++) {
+        const b = this.rw.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(0, r, -70 + i * pitch + phase).setRotation(q));
+        this.rw.createCollider(RAPIER.ColliderDesc.capsule(len / 2 - r, r).setFriction(0.8), b);
+        this.rods.push(b);
+      }
+      const steel = S.beltType === "rod";
+      const mat = steel ? new THREE.MeshStandardMaterial({ color: 0xc4c8cb, metalness: 0.9, roughness: 0.28 }) : new THREE.MeshStandardMaterial({ color: 0xe8e9e3, metalness: 0, roughness: 0.42 });
+      this.rodMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(r, r, len, 20), mat, n);
+      this.rodMesh.castShadow = this.rodMesh.receiveShadow = true;
+      this.rodMesh.frustumCulled = false;
+      this.statics.add(this.rodMesh);
+      // chain links along both edges, half hidden under the rails
+      const pan = new THREE.Mesh(new THREE.PlaneGeometry(len + 2, beltLen), new THREE.MeshStandardMaterial({ color: 0x2a2c2e, roughness: 0.9 }));
+      pan.rotation.x = -Math.PI / 2; pan.position.set(0, -2.6, this.Lcm / 2); pan.receiveShadow = true;
+      this.statics.add(pan);
+    }
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x1c1e20, roughness: 0.95 }));
     floor.rotation.x = -Math.PI / 2; floor.position.y = -35; floor.receiveShadow = true;
     this.statics.add(floor);
@@ -204,10 +235,9 @@ export class World {
     for (const e of this.eggs) { e.col.setRestitution(this.S.bounce); e.body.setAngularDamping(this.angDamp()); }
     this.wallCol?.setEnabled(!!this.S.backup);
     this.wallBody?.setTranslation({ x: 0, y: 2.8, z: this.wallZ() + 1 }, true);
-    if (this.beltTexType !== this.S.beltType) {
-      this.makeBeltMaterial();
-      this.buildStatics();
-    }
+    const S = this.S;
+    if (this.beltTexType !== S.beltType) this.makeBeltMaterial();
+    if (this.staticsKey !== [S.beltType, S.beltW, S.rodPitch, S.rodDia].join("|")) this.buildStatics();
   }
   angDamp() { return 0.12 + (1 - this.S.rollEase) * 3.5; }
 
@@ -318,7 +348,7 @@ export class World {
     const vx = toward * S.rollIn * rr(r, 4, 24);
     const vz = this.vBelt * (1 - S.rollIn * rr(r, 0.2, 0.7));
     const body = this.rw.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic().setTranslation(x, b + 0.15, z).setRotation(qq)
+      RAPIER.RigidBodyDesc.dynamic().setTranslation(x, b + 0.15 + this.surfY(), z).setRotation(qq)
         .setLinvel(vx, 0, vz).setAngvel({ x: -(vz - this.vBelt) / b, y: 0, z: vx / b })
         .setAngularDamping(this.angDamp()).setCanSleep(false),
     );
@@ -386,9 +416,20 @@ export class World {
     // Vibration up to 100% is gentle random nudging. Above that the belt itself starts shaking side to side
     // and up and down (torture testing); its position is re-centred so it can't drift.
     const vib = Math.min(1, S.vibration), shakeAmt = Math.max(0, S.vibration - 1), ts = this.simTime;
-    if (bt.z > 100 || Math.abs(bt.x) > 0.3 || Math.abs(bt.y + 0.5) > 0.3) this.beltBody.setTranslation({ x: 0, y: -0.5, z: bt.z > 100 ? bt.z - 200 : bt.z }, true);
+    if (bt.z > 100 || Math.abs(bt.x) > 0.3 || Math.abs(bt.y - this.beltY) > 0.3) this.beltBody.setTranslation({ x: 0, y: this.beltY, z: bt.z > 100 ? bt.z - 200 : bt.z }, true);
     const shake = v > 0 || S.stopGo ? shakeAmt : 0;
-    this.beltBody.setLinvel({ x: shake * 15 * Math.sin(TAU * 11 * ts), y: shake * 8 * Math.cos(TAU * 17 * ts), z: v }, true);
+    const sv = { x: shake * 15 * Math.sin(TAU * 11 * ts), y: shake * 8 * Math.cos(TAU * 17 * ts), z: v };
+    this.beltBody.setLinvel(sv, true);
+    if (this.rods.length) {
+      const r = (S.rodDia * MM) / 2, span = this.rods.length * S.rodPitch * MM;
+      // spinning rods turn the eggs resting on them (surface speed about 8 cm/s)
+      const spin = S.rodSpin ? { x: -8 / r, y: 0, z: 0 } : { x: 0, y: 0, z: 0 };
+      for (const b of this.rods) {
+        const t = b.translation();
+        if (t.z > this.Lcm + 40 || Math.abs(t.x) > 0.3 || Math.abs(t.y - r) > 0.3) b.setTranslation({ x: 0, y: r, z: t.z > this.Lcm + 40 ? t.z - span : t.z }, true);
+        b.setLinvel(sv, true); b.setAngvel(spin, true);
+      }
+    }
 
     // arrivals keep coming even when the belt is stopped; crowded spots simply refuse new eggs
     const meanGroup = 1 / (1 - S.clump * 0.9);
@@ -478,13 +519,13 @@ export class World {
       } else e.mesh.quaternion.copy(e.q);
     }
     for (const f of this.flats) {
-      f.obj.position.set(f.x, 0, f.z - v * tau);
+      f.obj.position.set(f.x, this.surfY(), f.z - v * tau);
       if (f.kind !== "broken") f.obj.children[0].rotation.z = f.ang;
     }
     // stains are fixed to the belt loop
     const bw = S.beltW * MM;
     for (const s of this.stains) {
-      const vis = s.thr <= S.beltDirt;
+      const vis = s.thr <= S.beltDirt && !this.isRod();
       const z = modp(s.u + bp, LOOP_CM) - 20;
       const inView = vis && z > -20 && z < this.Lcm + 20;
       if (inView && !s.mesh) {
@@ -495,7 +536,15 @@ export class World {
       if (s.mesh) { s.mesh.visible = inView; s.mesh.position.set(s.xf * bw, 0.02, z); }
     }
     const zs = modp(bp, LOOP_CM) - 20;
-    this.splice.visible = zs > -5 && zs < this.Lcm + 5;
+    this.splice.visible = zs > -5 && zs < this.Lcm + 5 && !this.isRod();
+    if (this.rodMesh) {
+      const m = new THREE.Matrix4(), rot = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
+      this.rods.forEach((b, i) => {
+        const t = b.translation();
+        this.rodMesh!.setMatrixAt(i, m.makeTranslation(0, t.y, t.z - v * tau).multiply(rot));
+      });
+      this.rodMesh.instanceMatrix.needsUpdate = true;
+    }
     this.splice.position.set(0, 0.03, zs);
     this.wallMesh.visible = !!S.backup;
     this.wallMesh.position.set(0, 2.8, this.wallZ() + 1);
