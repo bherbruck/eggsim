@@ -122,7 +122,8 @@ server.registerTool("capture_frame", {
 server.registerTool("export_dataset", {
   description:
     "Render a whole labeled dataset to disk: YOLO images/labels + data.yaml, per-frame JSON with ids, MOT tracks, optional instance masks. " +
-    "Each sequence is its own session and seed; the last is the val split. Software rendering runs at roughly 0.5 frames/s.",
+    "Each sequence is its own session and seed; about 15% of sequences become the val split. Pass profiles to cycle through saved settings " +
+    "and randomize for domain randomization (lighting, belts, flock, camera). Software rendering manages about 1.5 frames/s per worker; a GPU is much faster.",
   inputSchema: {
     out: z.string().describe("Output directory"),
     preset: z.string().optional(), settings: z.record(z.any()).optional(),
@@ -131,9 +132,15 @@ server.registerTool("export_dataset", {
     sequences: z.number().int().min(1).default(2),
     format: z.enum(["detect", "obb", "seg"]).default("seg"),
     masks: z.boolean().default(false),
+    profiles: z.array(z.record(z.any())).optional().describe("Several settings objects; sequences cycle through them"),
+    randomize: z.union([z.boolean(), z.record(z.any())]).optional()
+      .describe("true = built-in domain randomization; or {sequence: {key: [min,max] | [choices] | {of, times}}, frame: {...}, extend?: true}"),
+    seed: z.number().int().default(1),
+    workers: z.number().int().min(1).max(32).default(1).describe("Sequences rendered at once"),
+    image_format: z.enum(["png", "jpg"]).default("png"),
   },
 }, safe(async (a) => {
-  const res = await exportDataset(await sim(), { ...a, out: path.resolve(a.out), mask: a.masks });
+  const res = await exportDataset(await sim(), { ...a, out: path.resolve(a.out), mask: a.masks, imageFormat: a.image_format });
   return text(res);
 }));
 

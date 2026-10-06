@@ -167,10 +167,58 @@ function perfTile(type: string, P: number) {
   return { col, bump };
 }
 
-export const isPerforated = (type: string) => type === "perf" || type === "perfsmall";
+/** Belts with openings (transparent texels) that show the galvanized bed underneath. */
+export const isPerforated = (type: string) => ["perf", "perfsmall", "wire", "modular"].includes(type);
+
+/** Flat wire belt: transverse round rods every 13.3 mm joined by flat strips every 10 mm; open between. */
+function wireTile(P: number) {
+  const col = canvas(P, P), bump = canvas(P, P);
+  const gc = col.getContext("2d")!, gb = bump.getContext("2d")!;
+  const ic = gc.createImageData(P, P), ib = gb.createImageData(P, P);
+  const r = mulberry32(7), rodP = TILE_MM / 3, stripP = 10;
+  for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) {
+    const u = ((i + 0.5) / P) * TILE_MM, v = ((j + 0.5) / P) * TILE_MM;
+    const dr = Math.abs(((v % rodP) + rodP) % rodP - rodP / 2), ds = Math.abs((u % stripP) - stripP / 2);
+    const rod = dr < 1.1, strip = ds < 0.75;
+    const o = (j * P + i) * 4;
+    let h = 0;
+    if (rod) h = Math.sqrt(1 - (dr / 1.1) ** 2);         // round rod
+    else if (strip) h = 0.7 + 0.2 * (1 - ds / 0.75);     // flat strip, slightly lower
+    const f = (0.55 + 0.45 * h) * (1 + (r() - 0.5) * 0.08);
+    ic.data[o] = clamp(150 * f, 0, 255); ic.data[o + 1] = clamp(155 * f, 0, 255); ic.data[o + 2] = clamp(160 * f, 0, 255);
+    ic.data[o + 3] = rod || strip ? 255 : 0;
+    ib.data[o] = ib.data[o + 1] = ib.data[o + 2] = clamp(h * 255, 0, 255); ib.data[o + 3] = 255;
+  }
+  gc.putImageData(ic, 0, 0); gb.putImageData(ib, 0, 0);
+  return { col, bump };
+}
+
+/** Flat-top modular plastic belt: 20 mm rows of bricked 40 mm modules, hinge seams with drainage slots. */
+function modularTile(P: number) {
+  const col = canvas(P, P), bump = canvas(P, P);
+  const gc = col.getContext("2d")!, gb = bump.getContext("2d")!;
+  const ic = gc.createImageData(P, P), ib = gb.createImageData(P, P);
+  const r = mulberry32(11), row = 20;
+  for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) {
+    const u = ((i + 0.5) / P) * TILE_MM, v = ((j + 0.5) / P) * TILE_MM;
+    const k = Math.floor(v / row), fv = v - k * row, uu = (u + (k % 2) * 20) % TILE_MM;
+    const seamV = Math.min(fv, row - fv), seamU = Math.min(uu, TILE_MM - uu);
+    // slots straddle the hinge every 8 mm
+    const slot = seamV < 1.4 && ((uu % 8) > 2 && (uu % 8) < 6);
+    const edge = Math.min(seamV / 0.8, seamU / 0.8, 1);
+    const o = (j * P + i) * 4, f = (0.72 + 0.28 * edge) * (1 + (r() - 0.5) * 0.03);
+    ic.data[o] = clamp(226 * f, 0, 255); ic.data[o + 1] = clamp(228 * f, 0, 255); ic.data[o + 2] = clamp(226 * f, 0, 255);
+    ic.data[o + 3] = slot ? 0 : 255;
+    ib.data[o] = ib.data[o + 1] = ib.data[o + 2] = clamp(edge * 255, 0, 255); ib.data[o + 3] = 255;
+  }
+  gc.putImageData(ic, 0, 0); gb.putImageData(ib, 0, 0);
+  return { col, bump };
+}
 
 export function beltTiles(type: string) {
   const P = 320;
+  if (type === "wire") return wireTile(P);
+  if (type === "modular") return modularTile(P);
   if (isPerforated(type)) return perfTile(type, P);
   const col = canvas(P, P), bump = canvas(P, P);
   const gc = col.getContext("2d")!, gb = bump.getContext("2d")!;

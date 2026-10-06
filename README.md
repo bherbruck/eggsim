@@ -28,7 +28,21 @@ node scripts/export.mjs --frames 300 --settings my-profile.json --format obb --g
   rolling, stacked) and `mot/<seq>/gt/gt.txt` for tracker evaluation.
 - Labels come from an ID render, so they cover only the visible part of each object. Dirt patches are
   separate `dirt` objects with a `parent` egg id.
-- Without `--gpu`, Chromium renders in software at roughly 0.5 frames per second.
+- `--profiles a.json,b.json` cycles sequences through several saved profiles.
+- `--randomize` draws belt, flock, camera and lighting settings per sequence (and exposure, gain and noise
+  per frame) from built-in ranges; pass a spec file to use your own (`scripts/lib/randomize.mjs` documents
+  the format, and `"extend": true` merges it over the defaults). What each sequence drew is saved in
+  `sessions.json`.
+- `--workers N` renders N sequences at once; `--jpg` saves JPEG instead of PNG.
+- Speed: software rendering manages about 1.5 frames per second per worker plus a few seconds of warm-up per
+  sequence. With a GPU (`--gpu`) it should be far faster.
+
+```bash
+# 1000 randomized frames, 50 sequences of 20, 8 at a time
+node scripts/export.mjs --randomize --frames 1000 --sequences 50 --workers 8 --jpg --gpu --out data/random
+# 1000 frames from your own saved profiles
+node scripts/export.mjs --profiles flockA.json,flockB.json --frames 1000 --sequences 20 --workers 8 --out data/mine
+```
 
 ## Agents and programmatic access
 

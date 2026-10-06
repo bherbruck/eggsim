@@ -355,7 +355,10 @@ const api = {
   },
   /** Changes settings without restarting (camera, lighting, labels, flow rate...). */
   set(vals: Partial<Settings>) {
-    Object.assign(S, vals); syncControls(); view.configure(S); world.buildStatics(); world.applyMaterialSettings(); save();
+    const cam = Object.keys(vals).some((k) => CAMERA_KEYS.includes(k) && (vals as any)[k] !== (S as any)[k]);
+    Object.assign(S, vals); syncControls();
+    if (cam) reconfigure();
+    world.applyMaterialSettings(); save();
     return { classes: classNames(S) };
   },
   /** Advances simulated time and renders the next camera frame. */

@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveSpec, sample, mulberry32 } from "./randomize.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LIVE = "https://bherbruck.github.io/eggsim/";
@@ -91,39 +92,58 @@ export function motLines(frame, frameNo) {
 }
 
 /**
- * Renders a full dataset. Each sequence is its own session (own seed and session_id); the last one is
- * the val split when there is more than one.
+ * Renders a full dataset. Each sequence is its own session (own seed, session_id and, with `randomize`,
+ * its own randomly drawn settings). About 15% of sequences become the val split when there is more than one.
+ * `workers` sequences render at once in separate pages.
  */
-export async function exportDataset(sim, { preset, settings = {}, frames = 200, interval = 0.5, sequences = 2, format = "seg", out, mask = false, onProgress } = {}) {
+export async function exportDataset(sim, {
+  preset, settings = {}, frames = 200, interval = 0.5, sequences = 2, format = "seg", out, mask = false,
+  randomize = null, profiles = [], seed = 1, workers = 1, imageFormat = "png", onProgress,
+} = {}) {
   if (!["detect", "obb", "seg"].includes(format)) throw new Error("format must be detect, obb or seg");
+  if (!["png", "jpg"].includes(imageFormat)) throw new Error("imageFormat must be png or jpg");
+  const spec = resolveSpec(randomize);
   sequences = Math.max(1, sequences);
   const per = Math.ceil(frames / sequences);
-  let n = 0, classes = [];
-  const sessions = [];
-  for (let q = 0; q < sequences; q++) {
-    const split = sequences > 1 && q === sequences - 1 ? "val" : "train";
-    const seq = `seq${String(q + 1).padStart(2, "0")}`;
-    const s = await sim.session({ preset, seed: 1000 + q * 7919, settings: { ...settings, overlay: "off", osd: false, countLine: false, tracks: false } });
-    sessions.push({ seq, session_id: s.id, split });
+  const nVal = sequences > 1 ? Math.max(1, Math.round(sequences * 0.15)) : 0;
+  const ext = imageFormat === "jpg" ? ".jpg" : ".png";
+  let done = 0, classes = [];
+  const sessions = new Array(sequences);
+  let next = 0;
+  const runOne = async (q) => {
+    const split = q >= sequences - nVal ? "val" : "train";
+    const seq = `seq${String(q + 1).padStart(String(sequences).length + 1, "0")}`;
+    const rand = mulberry32(seed * 1000003 + q * 7919);
+    // sequences cycle through the given profiles; randomization is drawn on top of the profile
+    const pi = profiles.length ? q % profiles.length : null, prof = pi === null ? {} : profiles[pi];
+    const drawn = spec ? sample(spec.sequence, rand, { ...settings, ...prof }) : {};
+    const count = Math.min(per, frames - q * per);
+    if (count <= 0) return;
+    const s = await sim.session({ preset, seed: seed * 1000 + q, settings: { ...settings, ...prof, ...drawn, overlay: "off", osd: false, countLine: false, tracks: false } });
+    sessions[q] = { seq, session_id: s.id, split, frames: count, profile: pi, randomized: drawn };
     const mot = [];
-    for (let f = 0; f < per && n < frames; f++, n++) {
+    for (let f = 0; f < count; f++) {
+      if (spec && Object.keys(spec.frame).length) await s.set(sample(spec.frame, rand, s.info.settings));
       await s.step(interval);
-      const fr = await s.capture({ image: true, mask, ids: true });
+      const fr = await s.capture({ image: true, mask, ids: true, imageFormat: imageFormat === "jpg" ? "jpeg" : "png" });
       classes = fr.classes;
       const name = `${seq}_${String(f + 1).padStart(6, "0")}`;
-      write(path.join(out, "images", split, name + ".png"), fr.image);
+      write(path.join(out, "images", split, name + ext), fr.image);
       write(path.join(out, "labels", split, name + ".txt"), yoloLines(fr, format));
       if (fr.instance_mask) write(path.join(out, "masks", split, name + ".png"), fr.instance_mask);
       delete fr.image; delete fr.instance_mask;
       write(path.join(out, "json", seq, name + ".json"), JSON.stringify(fr));
       mot.push(...motLines(fr, f + 1));
-      onProgress?.(n + 1, frames);
+      onProgress?.(++done, frames);
     }
     write(path.join(out, "mot", seq, "gt", "gt.txt"), mot.join("\n") + "\n");
-    write(path.join(out, "mot", seq, "seqinfo.ini"), `[Sequence]\nname=${seq}\nframeRate=${Math.round(1 / interval)}\nseqLength=${per}\nsessionId=${s.id}\n`);
+    write(path.join(out, "mot", seq, "seqinfo.ini"), `[Sequence]\nname=${seq}\nframeRate=${Math.round(1 / interval)}\nseqLength=${count}\nimExt=${ext}\nsessionId=${s.id}\n`);
     await s.close();
-  }
-  write(path.join(out, "data.yaml"), `path: ${out}\ntrain: images/train\nval: images/${sequences > 1 ? "val" : "train"}\nnames:\n${classes.map((c, i) => `  ${i}: ${c}`).join("\n")}\n`);
-  write(path.join(out, "sessions.json"), JSON.stringify({ format, interval, sessions }, null, 2));
-  return { frames: n, out, classes, sessions };
+  };
+  await Promise.all(Array.from({ length: Math.max(1, workers) }, async () => {
+    while (next < sequences) await runOne(next++);
+  }));
+  write(path.join(out, "data.yaml"), `path: ${out}\ntrain: images/train\nval: images/${nVal ? "val" : "train"}\nnames:\n${classes.map((c, i) => `  ${i}: ${c}`).join("\n")}\n`);
+  write(path.join(out, "sessions.json"), JSON.stringify({ format, interval, preset, base_settings: settings, profiles, randomize: spec, sessions: sessions.filter(Boolean) }, null, 2));
+  return { frames: done, out, classes, sequences: sessions.filter(Boolean).length, val_sequences: nVal };
 }

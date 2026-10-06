@@ -9,6 +9,8 @@ import {
 } from "./textures";
 
 export const MM = 0.1;
+/** Multiplies the belt texture; "natural" keeps each belt's own color. */
+const BELT_TINT: Record<string, number> = { natural: 0xffffff, white: 0xffffff, blue: 0x86a9d6, gray: 0x9fa2a3, tan: 0xdcc69c, green: 0xa9c8ae };
 const LOOP_CM = 1400;
 const G_EGG = 0x0001, G_WALL = 0x0002;
 const groups = (member: number, filter: number) => ((member << 16) | filter) >>> 0;
@@ -68,7 +70,9 @@ export class World {
   private statics = new THREE.Group(); private dyn = new THREE.Group();
   private beltMat!: THREE.MeshStandardMaterial; private beltTex: THREE.Texture[] = []; private beltTexType = "";
   private wallMesh!: THREE.Mesh; private splice!: THREE.Mesh;
-  light = new THREE.DirectionalLight(0xffffff, 1.0);
+  /** Up to four shadow-casting lights; the view arranges them per light setup. */
+  lights = [0, 1, 2, 3].map(() => new THREE.DirectionalLight(0xffffff, 1.0));
+  get light() { return this.lights[0]; }
   hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 0.25);
   private steel: THREE.MeshStandardMaterial;
 
@@ -79,10 +83,12 @@ export class World {
     const st = new THREE.CanvasTexture(steelTexture()); st.colorSpace = THREE.SRGBColorSpace;
     st.wrapS = st.wrapT = THREE.RepeatWrapping; st.repeat.set(0.12, 30);
     this.steel = new THREE.MeshStandardMaterial({ map: st, metalness: 0.85, roughness: 0.42 });
-    const l = this.light;
-    l.castShadow = true; l.shadow.mapSize.set(2048, 2048);
-    l.shadow.bias = -0.0004; l.shadow.normalBias = 0.02;
-    this.scene.add(l, l.target);
+    this.lights.forEach((l, i) => {
+      l.castShadow = true; l.shadow.mapSize.set(i ? 1024 : 2048, i ? 1024 : 2048);
+      l.shadow.bias = -0.0004; l.shadow.normalBias = 0.02;
+      l.visible = i === 0;
+      this.scene.add(l, l.target);
+    });
     this.scene.add(this.hemi);
   }
 
@@ -224,9 +230,11 @@ export class World {
     for (const t of [map, bm]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; }
     this.beltTex = [map, bm];
     const perf = isPerforated(S.beltType);
+    const wire = S.beltType === "wire";
     this.beltMat = new THREE.MeshStandardMaterial({
       map, bumpMap: bm, bumpScale: S.beltType === "rubber" ? 0.3 : perf ? 2 : 1.2,
-      roughness: S.beltType === "rubber" ? 0.55 : perf ? 0.5 : 0.82, alphaTest: perf ? 0.5 : 0,
+      roughness: S.beltType === "rubber" ? 0.55 : wire ? 0.4 : perf ? 0.5 : 0.82, metalness: wire ? 0.65 : 0,
+      alphaTest: perf ? 0.5 : 0, color: BELT_TINT[S.beltTint] ?? 0xffffff,
     });
     this.beltTexType = S.beltType;
   }
@@ -234,7 +242,15 @@ export class World {
   wallZ() { return this.Lcm * this.S.wallPos; }
 
   // ---------------- live setting changes ----------------
+  /** Egg shell gloss from the shine setting: matte chalky shells to fresh, slightly glossy ones. */
+  shineMaterial(m: THREE.MeshPhysicalMaterial, brown: boolean) {
+    const sh = this.S.shine;
+    m.roughness = (brown ? 0.6 : 0.52) * (1.25 - 0.85 * sh);
+    m.clearcoat = 0.02 + 0.55 * sh;
+  }
   applyMaterialSettings() {
+    for (const e of this.eggs) this.shineMaterial(e.mesh.material as THREE.MeshPhysicalMaterial, e.look.brown);
+    if (this.beltMat) this.beltMat.color.set(BELT_TINT[this.S.beltTint] ?? 0xffffff);
     for (const e of this.eggs) { e.col.setRestitution(this.S.bounce); e.body.setAngularDamping(this.angDamp()); }
     this.wallCol?.setEnabled(!!this.S.backup);
     this.wallBody?.setTranslation({ x: 0, y: 2.8, z: this.wallZ() + 1 }, true);
@@ -329,7 +345,8 @@ export class World {
     const painted = eggTexture(look, this.texSize);
     const tex = new THREE.CanvasTexture(painted.color);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.wrapS = THREE.RepeatWrapping;
-    const mat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: look.brown ? 0.58 : 0.5, clearcoat: 0.08, clearcoatRoughness: 0.5, sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff) });
+    const mat = new THREE.MeshPhysicalMaterial({ map: tex, clearcoatRoughness: 0.5, sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff) });
+    this.shineMaterial(mat, look.brown);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = mesh.receiveShadow = true;
     if (look.dirty) mesh.userData.dirt = new THREE.CanvasTexture(painted.dirt);

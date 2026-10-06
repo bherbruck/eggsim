@@ -50,6 +50,11 @@ void main(){
 
 const CLS_COL: Record<string, string> = { egg: "#4ade80", dirty_egg: "#fbbf24", dirt: "#d9480f", broken: "#f43f5e", feather: "#38bdf8" };
 
+/** Colour casts from imperfect light sources, applied on top of the white balance. */
+const CASTS: Record<string, [number, number, number]> = {
+  neutral: [1, 1, 1], green: [0.9, 1.05, 0.86], magenta: [1.06, 0.86, 1.04], blue: [0.86, 0.95, 1.12], amber: [1.14, 0.94, 0.66],
+};
+
 function tempMul(k: number) {
   const t = (k - 2700) / (6500 - 2700);
   const warm = [1, 0.8, 0.6], neutral = [1, 0.98, 0.95], cool = [0.87, 0.93, 1];
@@ -118,22 +123,36 @@ export class View {
   }
 
   private updateLight(S: Settings) {
-    const l = this.world.light, Lcm = this.world.Lcm;
+    const w = this.world, Lcm = w.Lcm;
     const right = new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 0);
     const down = new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 1).negate();
-    const la = (S.lightAng * Math.PI) / 180;
-    const hdir = right.multiplyScalar(Math.cos(la)).add(down.multiplyScalar(Math.sin(la))).setY(0).normalize();
-    const tilt = Math.atan(S.shadow / 44);
-    l.target.position.set(0, 0, Lcm / 2);
-    l.position.copy(l.target.position).addScaledVector(hdir, Math.sin(tilt) * 300).add(new THREE.Vector3(0, Math.cos(tilt) * 300, 0));
-    l.intensity = 1.05 * S.keyLight;
-    this.world.hemi.intensity = 0.25 * S.fill;
-    this.world.scene.environmentIntensity = 0.32 * S.fill;
+    const la = (S.lightAng * Math.PI) / 180, base = Math.atan(S.shadow / 44), bal = S.lightBalance;
+    // each entry: direction in the image (radians), tilt from straight down, relative strength
+    let rig: [number, number, number][], fill = 1, soft = S.softness;
+    switch (S.lightRig) {
+      case "bars": rig = [[la, Math.max(base, 0.5), 0.62], [la + Math.PI, Math.max(base, 0.5), 0.62 * bal]]; break;
+      case "ring": rig = [0, 1, 2, 3].map((k) => [la + (k * Math.PI) / 2, base * 0.6 + 0.12, 0.34 * (k % 2 ? bal : 1)] as [number, number, number]); break;
+      case "window": rig = [[la, 1.15, 1.6]]; fill = 0.55; break;
+      case "dome": rig = [[la, base, 0.3]]; fill = 2.6; soft = 1; break;
+      default: rig = [[la, base, 1]];
+    }
     const ext = Math.max(S.fov * MM, Lcm) * 0.62 + 12;
-    const sc = l.shadow.camera;
-    sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 50; sc.far = 600;
-    sc.updateProjectionMatrix();
-    l.shadow.radius = 1 + S.softness * 9;
+    w.lights.forEach((l, i) => {
+      const spec = rig[i];
+      l.visible = !!spec;
+      if (!spec) return;
+      const [a, tilt, k] = spec;
+      const hdir = right.clone().multiplyScalar(Math.cos(a)).add(down.clone().multiplyScalar(Math.sin(a))).setY(0).normalize();
+      l.target.position.set(0, 0, Lcm / 2);
+      l.position.copy(l.target.position).addScaledVector(hdir, Math.sin(tilt) * 300).add(new THREE.Vector3(0, Math.cos(tilt) * 300, 0));
+      l.intensity = 1.05 * S.keyLight * k;
+      const sc = l.shadow.camera;
+      sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 50; sc.far = 600;
+      sc.updateProjectionMatrix();
+      l.shadow.radius = 1 + soft * 9;
+    });
+    w.hemi.intensity = 0.25 * S.fill * fill;
+    w.scene.environmentIntensity = 0.32 * S.fill * fill;
   }
 
   render(S: Settings, simTime: number) {
@@ -163,7 +182,8 @@ export class View {
     u.tex.value = this.rtAcc.texture;
     u.k.value = S.distortion; u.gain.value = S.gain; u.contrast.value = S.contrast; u.uneven.value = S.uneven;
     const la = (S.lightAng * Math.PI) / 180; u.hot.value.set(0.5 + 0.25 * Math.cos(la), 0.5 - 0.25 * Math.sin(la)); u.vignette.value = S.vignette; u.noise.value = S.noise;
-    const wb = tempMul(S.temp); u.wb.value.set(wb[0], wb[1], wb[2]);
+    const wb = tempMul(S.temp), cast = CASTS[S.lightCast] ?? [1, 1, 1];
+    u.wb.value.set(wb[0] * cast[0], wb[1] * cast[1], wb[2] * cast[2]);
     // 120 Hz light flicker read out by a rolling shutter; exposures past one period average it away
     u.flick.value = S.flicker * 0.55 * clamp(1 - S.exposure / 8.33, 0, 1);
     this.flickPhase += TAU * (0.31 + 0.07 * Math.sin(simTime * 0.7));

@@ -1,7 +1,7 @@
 export const DEFAULTS = {
   preset: "cross", seed: 7,
   // belt
-  beltType: "pp", beltW: 600, speed: 10, flow: "down", beltDirt: 0.35, vibration: 0.3, rodPitch: 32, rodDia: 10, rodSpin: false,
+  beltType: "pp", beltW: 600, speed: 10, flow: "down", beltDirt: 0.35, vibration: 0.3, rodPitch: 32, rodDia: 10, rodSpin: false, beltTint: "natural",
   // eggs
   rate: 30000, clump: 0.35, lateral: "uniform", align: 0.2, size: 58, sizeVar: 2.2, shadeLo: 0.5, shadeHi: 0.95,
   // motion and jams
@@ -11,6 +11,7 @@ export const DEFAULTS = {
   dirty: 0.06, cracked: 0.03, broken: 0.005, feathers: 1.5, manure: 4,
   // camera
   res: "1280x720", fps: 30, fov: 760, height: 900, distortion: 0.08, exposure: 2, gain: 1, temp: 4800,
+  lightRig: "overhead", lightBalance: 0.7, shine: 0.3, lightCast: "neutral",
   shadow: 6, softness: 0.5, lightAng: 135, keyLight: 1, fill: 1, contrast: 1, uneven: 0, vignette: 0.35, noise: 0.25, flicker: 0,
   // overlay
   eggClasses: "single", labelDirt: true, labelBroken: true, labelFeather: false, labelMinPx: 60, labelMinVisible: 0.15,
@@ -20,7 +21,7 @@ export type Settings = typeof DEFAULTS;
 
 // Applied before every preset so presets don't inherit each other's leftovers.
 export const BASE: Partial<Settings> = {
-  exposure: 2, gain: 1, temp: 4800, shadow: 6, softness: 0.5, keyLight: 1, fill: 1, contrast: 1, uneven: 0, vignette: 0.35, noise: 0.25, flicker: 0,
+  exposure: 2, gain: 1, temp: 4800, shadow: 6, softness: 0.5, lightRig: "overhead", lightBalance: 0.7, shine: 0.3, lightCast: "neutral", beltTint: "natural", keyLight: 1, fill: 1, contrast: 1, uneven: 0, vignette: 0.35, noise: 0.25, flicker: 0,
   vibration: 0.3, size: 58, sizeVar: 2.2, shadeLo: 0.5, shadeHi: 0.95, height: 900, distortion: 0.08,
   rollIn: 0.3, rollEase: 0.6, bounce: 0.12, bumps: 0.05, stopGo: false, stopCycle: 12,
   backup: false, release: 12000, wallPos: 1.05, cracked: 0.03, rodPitch: 32, rodDia: 10, rodSpin: false,
@@ -33,6 +34,8 @@ export const PRESETS: Record<string, Partial<Settings> & { label: string }> = {
   jam: { label: "Backup at transfer", beltType: "pp", beltW: 500, speed: 9, flow: "down", rate: 26000, clump: 0.5, lateral: "uniform", align: 0.3, fov: 640, res: "1280x720", dirty: 0.05, broken: 0.006, feathers: 1, manure: 3, beltDirt: 0.4, backup: true, release: 14000, wallPos: 0.82, bumps: 0.1 },
   tracker: { label: "Tracker torture test", beltType: "ppold", beltW: 450, speed: 9, flow: "down", rate: 34000, clump: 0.85, lateral: "edges", align: 0.3, fov: 560, res: "1280x720", dirty: 0.08, broken: 0.01, feathers: 2, manure: 6, beltDirt: 0.6, rollIn: 1, rollEase: 1, bounce: 0.3, bumps: 1, vibration: 1.6, stopGo: true, stopCycle: 5, exposure: 5, shadeLo: 0.62, shadeHi: 0.7, backup: true, release: 20000, wallPos: 1.15 },
   rough: { label: "Rough day: dirty flock, bad light", beltType: "ppold", beltW: 400, speed: 6, flow: "down", rate: 14000, clump: 0.6, lateral: "edges", align: 0.5, fov: 520, res: "1280x960", dirty: 0.25, broken: 0.03, feathers: 6, manure: 20, beltDirt: 0.9, flicker: 0.6, noise: 0.55, gain: 0.8, exposure: 1, keyLight: 2.2, fill: 0.2, contrast: 1.35, uneven: 0.6, softness: 0.1, shadow: 14 },
+  wire: { label: "Wire mesh belt, ring light", beltType: "wire", beltW: 500, speed: 9, flow: "down", rate: 22000, clump: 0.35, lateral: "uniform", align: 0.2, fov: 620, res: "1280x720", dirty: 0.05, broken: 0.004, feathers: 1, manure: 2, lightRig: "ring", shadow: 5, softness: 0.4, keyLight: 1.2 },
+  modular: { label: "Blue modular belt, two bar lights", beltType: "modular", beltTint: "blue", beltW: 600, speed: 12, flow: "down", rate: 30000, clump: 0.4, lateral: "uniform", align: 0.2, fov: 760, res: "1280x720", dirty: 0.05, broken: 0.004, feathers: 0.5, manure: 1, lightRig: "bars", shadow: 12, softness: 0.3, keyLight: 1.1 },
   rod: { label: "Rod conveyor, steel rods", beltType: "rod", beltW: 450, speed: 8, flow: "down", rate: 20000, clump: 0.4, lateral: "uniform", align: 0.2, fov: 560, res: "1280x720", dirty: 0.06, broken: 0.004, feathers: 1, manure: 2, rodPitch: 32, rodDia: 10, rodSpin: false, keyLight: 1.3, fill: 0.7, shadow: 8 },
   perf: { label: "Perforated belt, harsh bar light", beltType: "perf", beltW: 500, speed: 8, flow: "down", rate: 18000, clump: 0.4, lateral: "uniform", align: 0.2, fov: 620, res: "1280x720", dirty: 0.08, broken: 0.004, feathers: 1, manure: 3, beltDirt: 0.3, keyLight: 1.8, fill: 0.35, contrast: 1.2, uneven: 0.35, softness: 0.2, shadow: 10 },
 };
@@ -45,8 +48,9 @@ const pct = (v: number) => Math.round(v * 100) + "%";
 const pct1 = (v: number) => (v * 100).toFixed(1) + "%";
 
 export const CONTROLS: [string, Control][] = [
-  ["Belt", { k: "beltType", label: "Belt surface", type: "select", options: [["pp", "Woven PP, clean"], ["ppold", "Woven PP, aged"], ["perf", "Perforated plastic, large holes"], ["perfsmall", "Perforated plastic, small holes"], ["rubber", "Black PVC"], ["rod", "Rod conveyor, steel rods"], ["rodwhite", "Rod conveyor, white plastic rods"]] }],
+  ["Belt", { k: "beltType", label: "Belt surface", type: "select", options: [["pp", "Woven PP, clean"], ["ppold", "Woven PP, aged"], ["perf", "Perforated plastic, large holes"], ["perfsmall", "Perforated plastic, small holes"], ["rubber", "Black PVC"], ["rod", "Rod conveyor, steel rods"], ["rodwhite", "Rod conveyor, white plastic rods"], ["wire", "Wire mesh (flat wire)"], ["modular", "Modular plastic link belt"]] }],
   ["Belt", { k: "beltW", label: "Belt width", min: 80, max: 1200, step: 10, f: (v) => v + " mm" }],
+  ["Belt", { k: "beltTint", label: "Belt color", type: "select", options: [["natural", "Natural"], ["white", "White"], ["blue", "Blue"], ["gray", "Gray"], ["tan", "Tan / yellowed"], ["green", "Green"]] }],
   ["Belt", { k: "rodPitch", label: "Rod spacing (rod conveyors)", min: 18, max: 60, step: 1, f: (v) => v + " mm" }],
   ["Belt", { k: "rodDia", label: "Rod diameter (rod conveyors)", min: 5, max: 20, step: 0.5, f: (v) => v + " mm" }],
   ["Belt", { k: "rodSpin", label: "Rods spin and turn eggs (rod conveyors)", type: "toggle" }],
@@ -86,6 +90,10 @@ export const CONTROLS: [string, Control][] = [
   ["Camera", { k: "shadow", label: "Shadow length", min: 0, max: 30, step: 0.5, f: (v) => v.toFixed(1) + " mm" }],
   ["Camera", { k: "softness", label: "Shadow softness", min: 0, max: 1, step: 0.05, f: pct }],
   ["Camera", { k: "lightAng", label: "Light direction", min: 0, max: 359, step: 1, f: (v) => v + "°" }],
+  ["Camera", { k: "lightRig", label: "Light setup", type: "select", options: [["overhead", "Single overhead light"], ["bars", "Two bar lights, both sides"], ["ring", "Ring light around the camera"], ["window", "Side window, low sun"], ["dome", "Diffuse dome, almost no shadows"]] }],
+  ["Camera", { k: "lightBalance", label: "Second side strength (bars, ring)", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Camera", { k: "lightCast", label: "Light color cast", type: "select", options: [["neutral", "None"], ["green", "Green (fluorescent tubes)"], ["magenta", "Magenta (cheap LEDs)"], ["blue", "Blue (cool daylight)"], ["amber", "Amber (sodium / old bulbs)"]] }],
+  ["Camera", { k: "shine", label: "Egg shell shine", min: 0, max: 1, step: 0.05, f: pct }],
   ["Camera", { k: "keyLight", label: "Key light strength", min: 0.2, max: 3, step: 0.05, f: (v) => v.toFixed(2) + "×" }],
   ["Camera", { k: "fill", label: "Fill (ambient) light", min: 0, max: 2, step: 0.05, f: (v) => v.toFixed(2) + "×" }],
   ["Camera", { k: "contrast", label: "Contrast", min: 0.5, max: 1.8, step: 0.05, f: (v) => v.toFixed(2) }],
