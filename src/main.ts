@@ -100,12 +100,14 @@ function updateStats() {
 }
 
 // ---------------- loop ----------------
-let paused = false, last = performance.now(), acc = 0, frameAcc = 0, statT = 0;
+let paused = false, ready = false, last = performance.now(), acc = 0, frameAcc = 0, statT = 0;
 const DT = 1 / 120;
 function restart() {
   $("#busy").hidden = false;
+  ready = false;
   requestAnimationFrame(() => setTimeout(() => {
     world.restart();
+    ready = true;
     view.render(S, world.simTime);
     updateStats();
     $("#busy").hidden = true;
@@ -113,7 +115,9 @@ function restart() {
   }, 0));
 }
 function tick(now: number) {
+  requestAnimationFrame(tick); // schedule first so one bad frame can't stop playback
   const dtReal = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!ready) return;
   if (!paused) {
     acc += dtReal; frameAcc += dtReal;
     let n = 0;
@@ -124,10 +128,10 @@ function tick(now: number) {
   }
   statT += dtReal;
   if (statT > 0.25) { statT = 0; updateStats(); }
-  requestAnimationFrame(tick);
 }
 function setPaused(p: boolean) { paused = p; $("#play").textContent = p ? "Play" : "Pause"; }
 function stepFrame() {
+  if (!ready) return;
   setPaused(true);
   const n = Math.round(1 / S.fps / DT) || 1;
   for (let i = 0; i < n; i++) world.step(DT);
