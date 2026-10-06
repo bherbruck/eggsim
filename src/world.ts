@@ -176,7 +176,10 @@ export class World {
         this.rods.push(b);
       }
       const steel = S.beltType === "rod";
-      const mat = steel ? new THREE.MeshStandardMaterial({ color: 0xc4c8cb, metalness: 0.9, roughness: 0.28 }) : new THREE.MeshStandardMaterial({ color: 0xe8e9e3, metalness: 0, roughness: 0.42 });
+      // brushed, slightly grimy steel; a polished mirror finish reads as white under the overhead lights
+      const mat = steel
+        ? new THREE.MeshStandardMaterial({ color: 0x7c8186, metalness: 0.75, roughness: 0.5, envMapIntensity: 0.45 })
+        : new THREE.MeshStandardMaterial({ color: 0xb3b0a4, metalness: 0, roughness: 0.6, envMapIntensity: 0.5 });
       this.rodMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(r, r, len, 20), mat, n);
       this.rodMesh.castShadow = this.rodMesh.receiveShadow = true;
       this.rodMesh.frustumCulled = false;
