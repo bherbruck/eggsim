@@ -1,0 +1,950 @@
+<title>Egg Belt Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: camera monitor on the left, a tall rack of grouped controls on the right; stacks on phones. */
+:root {
+  --bg: #e9ecea;
+  --panel: #f8f9f8;
+  --ink: #1b2226;
+  --muted: #5b676d;
+  --line: #d2d8d6;
+  --chip: #e1e6e4;
+  --accent: #c97f00;
+  --accent-ink: #1a1408;
+  --feed: #0a0c0d;
+  --good: #2f8a4c;
+  --f-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111518; --panel: #181e21; --ink: #e2e7e5; --muted: #8b989e; --line: #283237;
+    --chip: #212a2e; --accent: #f0a72a; --accent-ink: #1a1408; --feed: #050607; --good: #5cc27d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111518; --panel: #181e21; --ink: #e2e7e5; --muted: #8b989e; --line: #283237;
+  --chip: #212a2e; --accent: #f0a72a; --accent-ink: #1a1408; --feed: #050607; --good: #5cc27d;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; }
+.wrap { padding-inline: 16px; padding-block: 12px 20px; display: flex; flex-direction: column; gap: 12px; min-height: 100%; box-sizing: border-box; }
+.top { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
+.top h1 { font-family: var(--f-display); font-weight: 700; font-size: 22px; letter-spacing: 0.02em; margin: 0; text-transform: uppercase; }
+.top .sub { color: var(--muted); font-size: 13px; }
+.transport { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+button.btn {
+  font: 600 13px/1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 9px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer;
+}
+button.btn:hover { border-color: var(--muted); }
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); min-width: 78px; }
+button.btn:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; align-items: start; }
+.feed { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.screen { background: var(--feed); border-radius: 6px; padding: 6px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04); }
+#cv { display: block; width: 100%; height: auto; max-height: calc(100vh - 190px); object-fit: contain; background: #000; border-radius: 3px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.stat { background: var(--panel); padding: 9px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.stat .k { font: 600 11px/1.2 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.stat .v { font: 500 18px/1.2 var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat .v small { font-size: 12px; color: var(--muted); }
+
+.controls { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-height: calc(100vh - 80px); overflow: auto; }
+.preset { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+details { border-bottom: 1px solid var(--line); }
+details:last-child { border-bottom: 0; }
+summary { cursor: pointer; padding: 10px 14px; font: 700 13px/1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--muted); font-family: var(--f-mono); }
+details[open] summary::after { content: "−"; }
+.rows { padding: 2px 14px 14px; display: flex; flex-direction: column; gap: 11px; }
+.ctl { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; }
+.ctl label { font-size: 13px; color: var(--ink); }
+.ctl output { font: 500 12px/1 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctl input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+.ctl select, .ctl input[type=number], .preset select {
+  grid-column: 1 / -1; width: 100%; font: 500 13px var(--f-body); padding: 6px 8px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); box-sizing: border-box;
+}
+.preset label { font: 600 11px/1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ctl.toggle { grid-template-columns: 1fr auto; }
+.ctl.toggle input { width: 34px; height: 18px; accent-color: var(--accent); margin: 0; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.4; margin: 0; }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 4px; font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .controls { max-height: none; }
+  #cv { max-height: 70vh; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Egg Belt Simulator</h1>
+    <span class="sub">Synthetic overhead camera feed. Every slider applies live.</span>
+    <div class="transport">
+      <button class="btn primary" id="play" type="button">Pause</button>
+      <button class="btn" id="step" type="button">Step frame</button>
+      <button class="btn" id="restart" type="button">Restart</button>
+      <button class="btn" id="copy" type="button">Copy frame labels</button>
+    </div>
+  </header>
+  <main class="layout">
+    <section class="feed">
+      <div class="screen"><canvas id="cv" width="1280" height="720" aria-label="Simulated overhead camera view of eggs moving on a conveyor belt"></canvas></div>
+      <div class="stats">
+        <div class="stat"><span class="k">Counted at line</span><span class="v" id="st-count">0</span></div>
+        <div class="stat"><span class="k">Measured rate</span><span class="v" id="st-rate">0 <small>eggs/h</small></span></div>
+        <div class="stat"><span class="k">In frame</span><span class="v" id="st-frame">0</span></div>
+        <div class="stat"><span class="k">Belt coverage</span><span class="v" id="st-cover">0%</span></div>
+        <div class="stat"><span class="k">Scale</span><span class="v" id="st-scale">0 <small>px/mm</small></span></div>
+        <div class="stat"><span class="k">Dirty / cracked / broken</span><span class="v" id="st-def">0 / 0 / 0</span></div>
+      </div>
+    </section>
+    <aside class="controls" id="controls">
+      <div class="preset">
+        <label for="preset">Preset</label>
+        <select id="preset"></select>
+        <p class="hint">Space pauses. Period steps one camera frame. Copy frame labels puts ground-truth boxes for the current frame on the clipboard as JSON.</p>
+      </div>
+    </aside>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+// ---------- settings ----------
+const DEFAULTS = {
+  preset: "cross", seed: 7,
+  beltType: "pp", beltW: 600, speed: 10, flow: "down", beltDirt: 0.35, vibration: 0.3,
+  rate: 30000, clump: 0.35, lateral: "uniform", align: 0.2, size: 58, sizeVar: 2.2, brown: 0.85,
+  dirty: 0.06, cracked: 0.03, broken: 0.005, feathers: 1.5, manure: 4,
+  res: "1280x720", fps: 30, fov: 760, exposure: 2, gain: 1, temp: 4800, shadow: 3, lightAng: 135,
+  vignette: 0.35, noise: 0.25, flicker: 0,
+  osd: true, boxes: false, labels: true, countLine: true, linePos: 0.5,
+};
+const BASE = { exposure: 2, gain: 1, temp: 4800, shadow: 3, vignette: 0.35, noise: 0.25, flicker: 0, vibration: 0.3, size: 58, sizeVar: 2.2, brown: 0.85 };
+const PRESETS = {
+  cross: { label: "Cross conveyor, 600 mm", beltType: "pp", beltW: 600, speed: 10, flow: "down", rate: 30000, clump: 0.35, lateral: "uniform", align: 0.2, fov: 760, res: "1280x720", dirty: 0.06, cracked: 0.03, broken: 0.005, feathers: 1.5, manure: 4, beltDirt: 0.35 },
+  cage: { label: "Cage row collection belt, 4 in", beltType: "ppold", beltW: 100, speed: 3, flow: "right", rate: 2400, clump: 0.25, lateral: "edges", align: 0.85, fov: 150, res: "1280x720", dirty: 0.08, cracked: 0.04, broken: 0.008, feathers: 3, manure: 10, beltDirt: 0.6 },
+  packer: { label: "Packer infeed, 900 mm", beltType: "rubber", beltW: 900, speed: 18, flow: "down", rate: 90000, clump: 0.55, lateral: "uniform", align: 0, fov: 1000, res: "1920x1080", dirty: 0.02, cracked: 0.02, broken: 0.002, feathers: 0.3, manure: 0.5, beltDirt: 0.15, brown: 0.3 },
+  rough: { label: "Rough day: dirty flock, bad light", beltType: "ppold", beltW: 400, speed: 6, flow: "down", rate: 14000, clump: 0.6, lateral: "edges", align: 0.5, fov: 520, res: "1280x960", dirty: 0.25, cracked: 0.1, broken: 0.03, feathers: 6, manure: 20, beltDirt: 0.9, flicker: 0.6, noise: 0.55, gain: 0.8, exposure: 1 },
+};
+const pct = (v) => Math.round(v * 100) + "%";
+const pct1 = (v) => (v * 100).toFixed(1) + "%";
+const CONTROLS = [
+  ["Belt", { k: "beltType", label: "Belt surface", type: "select", options: [["pp", "Woven PP, clean"], ["ppold", "Woven PP, aged"], ["rubber", "Black PVC"]] }],
+  ["Belt", { k: "beltW", label: "Belt width", min: 80, max: 1200, step: 10, f: (v) => v + " mm" }],
+  ["Belt", { k: "speed", label: "Belt speed", min: 0, max: 40, step: 0.5, f: (v) => v.toFixed(1) + " m/min" }],
+  ["Belt", { k: "flow", label: "Flow direction in image", type: "select", options: [["down", "Top to bottom"], ["up", "Bottom to top"], ["right", "Left to right"], ["left", "Right to left"]] }],
+  ["Belt", { k: "beltDirt", label: "Belt stains", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Belt", { k: "vibration", label: "Vibration and slip", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Eggs", { k: "rate", label: "Egg flow", min: 0, max: 120000, step: 200, f: (v) => v.toLocaleString() + " /h" }],
+  ["Eggs", { k: "clump", label: "Clumping", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Eggs", { k: "lateral", label: "Arrival across belt", type: "select", options: [["uniform", "Spread evenly"], ["edges", "Both edges (rolled from cages)"], ["center", "Centered"], ["left", "One edge"]] }],
+  ["Eggs", { k: "align", label: "Aligned with belt", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Eggs", { k: "size", label: "Mean egg length", min: 48, max: 66, step: 0.5, f: (v) => v.toFixed(1) + " mm" }],
+  ["Eggs", { k: "sizeVar", label: "Length spread (σ)", min: 0, max: 5, step: 0.1, f: (v) => v.toFixed(1) + " mm" }],
+  ["Eggs", { k: "brown", label: "Brown eggs", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Defects & debris", { k: "dirty", label: "Dirty eggs", min: 0, max: 0.5, step: 0.005, f: pct1 }],
+  ["Defects & debris", { k: "cracked", label: "Cracked eggs", min: 0, max: 0.3, step: 0.005, f: pct1 }],
+  ["Defects & debris", { k: "broken", label: "Broken eggs", min: 0, max: 0.1, step: 0.001, f: pct1 }],
+  ["Defects & debris", { k: "feathers", label: "Feathers", min: 0, max: 15, step: 0.1, f: (v) => v.toFixed(1) + " /m" }],
+  ["Defects & debris", { k: "manure", label: "Manure specks", min: 0, max: 40, step: 0.5, f: (v) => v.toFixed(1) + " /m" }],
+  ["Camera", { k: "res", label: "Resolution", type: "select", options: [["640x480", "640 × 480"], ["1280x720", "1280 × 720"], ["1280x960", "1280 × 960"], ["1440x1080", "1440 × 1080"], ["1920x1080", "1920 × 1080"]] }],
+  ["Camera", { k: "fps", label: "Frame rate", min: 2, max: 60, step: 1, f: (v) => v + " fps" }],
+  ["Camera", { k: "fov", label: "Field of view across belt", min: 100, max: 1600, step: 10, f: (v) => v + " mm" }],
+  ["Camera", { k: "exposure", label: "Exposure (motion blur)", min: 0.1, max: 20, step: 0.1, f: (v) => v.toFixed(1) + " ms" }],
+  ["Camera", { k: "gain", label: "Brightness", min: 0.3, max: 2, step: 0.05, f: (v) => v.toFixed(2) + "×" }],
+  ["Camera", { k: "temp", label: "Light color", min: 2700, max: 6500, step: 100, f: (v) => v + " K" }],
+  ["Camera", { k: "shadow", label: "Shadow offset", min: 0, max: 12, step: 0.5, f: (v) => v.toFixed(1) + " mm" }],
+  ["Camera", { k: "lightAng", label: "Light direction", min: 0, max: 359, step: 1, f: (v) => v + "°" }],
+  ["Camera", { k: "vignette", label: "Vignetting", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Camera", { k: "noise", label: "Sensor noise", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Camera", { k: "flicker", label: "Mains light flicker", min: 0, max: 1, step: 0.05, f: pct }],
+  ["Overlay", { k: "osd", label: "Camera timestamp text", type: "toggle" }],
+  ["Overlay", { k: "countLine", label: "Counting line", type: "toggle" }],
+  ["Overlay", { k: "linePos", label: "Line position", min: 0.1, max: 0.9, step: 0.01, f: pct }],
+  ["Overlay", { k: "boxes", label: "Ground-truth boxes", type: "toggle" }],
+  ["Overlay", { k: "labels", label: "Box labels", type: "toggle" }],
+  ["Simulation", { k: "seed", label: "Random seed (Restart to apply)", type: "number" }],
+];
+
+let S = Object.assign({}, DEFAULTS);
+try { const saved = JSON.parse(localStorage.getItem("eggbelt.settings") || "null"); if (saved) Object.assign(S, saved); } catch (e) {}
+let saveT = 0;
+function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem("eggbelt.settings", JSON.stringify(S)); } catch (e) {} }, 300); }
+
+// ---------- random ----------
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+let rng = mulberry32(S.seed);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const rr = (r, a, b) => a + (b - a) * r();
+function gaussR(r) { let u = 0; while (!u) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); }
+const rand = (a = 0, b = 1) => rr(rng, a, b);
+const gauss = () => gaussR(rng);
+const newSeed = () => (rng() * 4294967296) >>> 0;
+const TAU = Math.PI * 2;
+const modp = (a, m) => ((a % m) + m) % m;
+
+// ---------- canvases ----------
+const cv = $("#cv");
+const ctx = cv.getContext("2d");
+const sc = document.createElement("canvas");
+const sctx = sc.getContext("2d");
+let W = 1280, H = 720, scale = 1, Lmm = 400, M = new DOMMatrix();
+
+function configureCamera() {
+  const [w, h] = S.res.split("x").map(Number);
+  W = w; H = h;
+  cv.width = sc.width = W; cv.height = sc.height = H;
+  const vertical = S.flow === "down" || S.flow === "up";
+  const across = vertical ? W : H, along = vertical ? H : W;
+  scale = across / S.fov;
+  Lmm = along / scale;
+  const s = scale;
+  M = S.flow === "down" ? new DOMMatrix([s, 0, 0, s, W / 2, 0])
+    : S.flow === "up" ? new DOMMatrix([-s, 0, 0, -s, W / 2, H])
+    : S.flow === "right" ? new DOMMatrix([0, -s, s, 0, 0, H / 2])
+    : new DOMMatrix([0, s, -s, 0, W, H / 2]);
+  beltTile = null; noisePats = null;
+  for (const c of [ctx, sctx]) { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high"; }
+}
+
+// ---------- egg shape ----------
+function eggPath(g, a, b, k) {
+  g.beginPath();
+  for (let i = 0; i <= 56; i++) {
+    const t = (i / 56) * TAU, c = Math.cos(t);
+    const x = a * c, y = b * Math.sin(t) * (1 - k * c);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+}
+function blob(g, r, cx, cy, rad, jag) {
+  g.beginPath();
+  const n = 14, ph = r() * TAU;
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * TAU;
+    const q = rad * (1 + jag * (Math.sin(t * 3 + ph) * 0.5 + (r() - 0.5)));
+    const x = cx + Math.cos(t) * q, y = cy + Math.sin(t) * q;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+}
+function spriteCanvas(wmm, hmm, s) {
+  const c = document.createElement("canvas");
+  c.width = Math.max(4, Math.ceil(wmm * s)); c.height = Math.max(4, Math.ceil(hmm * s));
+  const g = c.getContext("2d");
+  g.setTransform(c.width / wmm, 0, 0, c.height / hmm, c.width / 2, c.height / 2);
+  return { c, g, wmm, hmm, s };
+}
+
+// ---------- sprite makers ----------
+function makeEgg(e, s) {
+  const r = mulberry32(e.seed);
+  const sp = spriteCanvas(2 * e.a + 3, 2 * e.b + 3, s), g = sp.g;
+  eggPath(g, e.a, e.b, e.k);
+  g.fillStyle = `hsl(${e.h},${e.sat}%,${e.l}%)`; g.fill();
+  g.save(); eggPath(g, e.a, e.b, e.k); g.clip();
+  // mottling
+  for (let i = 0; i < 7; i++) {
+    const x = rr(r, -e.a, e.a), y = rr(r, -e.b, e.b), rad = rr(r, 6, 16);
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    const lift = r() < 0.5;
+    gr.addColorStop(0, lift ? "rgba(255,255,255,0.07)" : `hsla(${e.h},${e.sat + 10}%,${e.l - 18}%,0.10)`);
+    gr.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // speckles and calcium spots
+  const nSpk = e.brown ? Math.floor(rr(r, 10, 70)) : Math.floor(rr(r, 0, 10));
+  for (let i = 0; i < nSpk; i++) {
+    const x = rr(r, -e.a, e.a), y = rr(r, -e.b, e.b), rad = rr(r, 0.2, e.brown ? 1.1 : 0.6);
+    g.fillStyle = e.brown ? `hsla(${e.h - 4},${e.sat + 15}%,${e.l - 22}%,${rr(r, 0.2, 0.55)})` : `rgba(150,140,120,${rr(r, 0.1, 0.25)})`;
+    g.beginPath(); g.ellipse(x, y, rad, rad * rr(r, 0.6, 1), r() * 3, 0, TAU); g.fill();
+  }
+  if (r() < 0.25) {
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = `rgba(255,252,240,${rr(r, 0.25, 0.6)})`;
+      g.beginPath(); g.arc(rr(r, -e.a, e.a), rr(r, -e.b, e.b), rr(r, 0.4, 1.4), 0, TAU); g.fill();
+    }
+  }
+  // manure and dirt
+  if (e.dirty) {
+    const n = 1 + Math.floor(r() * 3);
+    for (let i = 0; i < n; i++) {
+      const cx = rr(r, -e.a * 0.8, e.a * 0.8), cy = rr(r, -e.b * 0.8, e.b * 0.8), rad = rr(r, 3, 11);
+      const tone = r() < 0.6 ? [62, 48, 30] : [74, 72, 44];
+      for (let j = 0; j < 9; j++) {
+        g.fillStyle = `rgba(${tone[0]},${tone[1]},${tone[2]},${rr(r, 0.18, 0.5)})`;
+        blob(g, r, cx + rr(r, -rad, rad) * 0.6, cy + rr(r, -rad, rad) * 0.6, rad * rr(r, 0.25, 0.7), 0.6); g.fill();
+      }
+      if (r() < 0.5) { g.fillStyle = "rgba(238,236,226,0.75)"; blob(g, r, cx + rr(r, -2, 2), cy + rr(r, -2, 2), rad * 0.25, 0.5); g.fill(); }
+      // smear streak
+      g.strokeStyle = `rgba(${tone[0]},${tone[1]},${tone[2]},0.25)`; g.lineWidth = rr(r, 1, 3); g.lineCap = "round";
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + rr(r, -15, 15), cy + rr(r, -6, 6)); g.stroke();
+    }
+  }
+  // spherical shading from overhead light
+  g.save(); g.scale(1, e.b / e.a);
+  const sh = g.createRadialGradient(-e.a * 0.06, 0, 0, 0, 0, e.a * 1.02);
+  sh.addColorStop(0, "rgba(0,0,0,0)"); sh.addColorStop(0.55, "rgba(0,0,0,0.05)");
+  sh.addColorStop(0.82, "rgba(0,0,0,0.2)"); sh.addColorStop(1, "rgba(0,0,0,0.52)");
+  g.fillStyle = sh; g.fillRect(-e.a * 1.3, -e.a * 1.3, e.a * 2.6, e.a * 2.6);
+  const hl = g.createRadialGradient(-e.a * 0.08, 0, 0, -e.a * 0.08, 0, e.a * 0.6);
+  hl.addColorStop(0, `rgba(255,255,255,${e.brown ? 0.22 : 0.3})`); hl.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = hl; g.fillRect(-e.a * 1.3, -e.a * 1.3, e.a * 2.6, e.a * 2.6);
+  g.restore();
+  // cracks
+  if (e.cracked) {
+    const ox = rr(r, -e.a * 0.5, e.a * 0.5), oy = rr(r, -e.b * 0.5, e.b * 0.5);
+    const arms = 2 + Math.floor(r() * 3);
+    for (let i = 0; i < arms; i++) {
+      let x = ox, y = oy, dir = r() * TAU;
+      const pts = [[x, y]], len = rr(r, 8, 24);
+      for (let d = 0; d < len; d += 1.5) { dir += rr(r, -0.6, 0.6); x += Math.cos(dir) * 1.5; y += Math.sin(dir) * 1.5; pts.push([x, y]); }
+      for (const [col, w, off] of [["rgba(255,255,255,0.35)", 0.5, 0.35], ["rgba(55,40,25,0.75)", 0.28, 0]]) {
+        g.strokeStyle = col; g.lineWidth = w; g.beginPath();
+        pts.forEach(([px, py], j) => (j ? g.lineTo(px + off, py + off) : g.moveTo(px + off, py + off)));
+        g.stroke();
+      }
+    }
+  }
+  g.restore();
+  eggPath(g, e.a, e.b, e.k);
+  g.lineWidth = 0.3; g.strokeStyle = "rgba(40,28,15,0.3)"; g.stroke();
+  return sp;
+}
+function makeShadow(e, s) {
+  const blurMm = 2.6, OFF = 4000;
+  const sp = spriteCanvas(2 * e.a + 8 * blurMm, 2 * e.b + 8 * blurMm, s), g = sp.g;
+  const k = sp.c.width / sp.wmm;
+  g.setTransform(k, 0, 0, k, sp.c.width / 2 - OFF, sp.c.height / 2);
+  g.shadowColor = "rgba(0,0,0,0.75)"; g.shadowBlur = blurMm * s; g.shadowOffsetX = OFF;
+  eggPath(g, e.a * 0.97, e.b * 0.97, e.k); g.fillStyle = "#000"; g.fill();
+  return sp;
+}
+function makeBroken(o, s) {
+  const r = mulberry32(o.seed);
+  const sp = spriteCanvas(96, 84, s), g = sp.g;
+  // albumen puddle
+  g.fillStyle = "rgba(232,228,186,0.30)"; blob(g, r, 0, 0, rr(r, 26, 36), 0.35); g.fill();
+  g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 0.6; g.stroke();
+  g.fillStyle = "rgba(210,205,150,0.25)"; blob(g, r, rr(r, -6, 6), rr(r, -6, 6), rr(r, 16, 24), 0.4); g.fill();
+  // yolk
+  const yx = rr(r, -8, 8), yy = rr(r, -6, 6), yr = rr(r, 10, 14), smear = r() < 0.5;
+  const yg = g.createRadialGradient(yx - 3, yy - 3, 1, yx, yy, yr * (smear ? 1.5 : 1));
+  yg.addColorStop(0, "hsl(44,100%,62%)"); yg.addColorStop(0.7, "hsl(36,98%,48%)"); yg.addColorStop(1, "hsla(34,95%,42%,0.85)");
+  g.fillStyle = yg; g.beginPath(); g.ellipse(yx, yy, yr * (smear ? 1.6 : 1), yr * (smear ? 0.7 : 1), r() * 3, 0, TAU); g.fill();
+  g.fillStyle = "rgba(255,255,255,0.45)"; g.beginPath(); g.ellipse(yx - yr * 0.3, yy - yr * 0.3, yr * 0.25, yr * 0.15, -0.6, 0, TAU); g.fill();
+  // shell fragments
+  const n = 3 + Math.floor(r() * 5);
+  for (let i = 0; i < n; i++) {
+    const cx = rr(r, -30, 30), cy = rr(r, -26, 26), sz = rr(r, 4, 14), sides = 4 + Math.floor(r() * 3), rot = r() * TAU;
+    g.beginPath();
+    for (let j = 0; j < sides; j++) { const t = rot + (j / sides) * TAU, q = sz * rr(r, 0.5, 1); j ? g.lineTo(cx + Math.cos(t) * q, cy + Math.sin(t) * q) : g.moveTo(cx + Math.cos(t) * q, cy + Math.sin(t) * q); }
+    g.closePath();
+    g.fillStyle = `hsl(${o.h},${o.sat}%,${o.l}%)`; g.fill();
+    g.strokeStyle = "rgba(250,248,240,0.9)"; g.lineWidth = 0.6; g.stroke();
+    g.fillStyle = "rgba(0,0,0,0.12)"; g.fill();
+  }
+  return sp;
+}
+function makeFeather(o, s) {
+  const r = mulberry32(o.seed);
+  const L = o.len, sp = spriteCanvas(L + 10, L * 0.7 + 10, s), g = sp.g;
+  const col = o.white ? [240, 238, 230] : [150, 105, 70];
+  g.lineCap = "round";
+  if (o.down) {
+    for (let i = 0; i < 70; i++) {
+      const t = r() * TAU, q = rr(r, 0.3, 1) * L * 0.35;
+      g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${rr(r, 0.15, 0.45)})`; g.lineWidth = rr(r, 0.15, 0.4);
+      g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(Math.cos(t + 0.4) * q * 0.6, Math.sin(t + 0.4) * q * 0.6, Math.cos(t) * q, Math.sin(t) * q); g.stroke();
+    }
+    return sp;
+  }
+  const bend = rr(r, -0.12, 0.12) * L;
+  const qx = (t) => -L / 2 + t * L, qy = (t) => bend * 4 * t * (1 - t);
+  for (let i = 0; i < 90; i++) {
+    const t = 0.18 + (i / 90) * 0.8, side = i % 2 ? 1 : -1;
+    const w = L * 0.28 * Math.sin(Math.PI * Math.min(1, (t - 0.1) / 0.92)) * rr(r, 0.75, 1.05);
+    g.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${rr(r, 0.35, 0.7)})`; g.lineWidth = rr(r, 0.25, 0.5);
+    g.beginPath(); g.moveTo(qx(t), qy(t)); g.quadraticCurveTo(qx(t) + w * 0.5, qy(t) + side * w * 0.5, qx(t) + w * 0.75, qy(t) + side * w); g.stroke();
+  }
+  g.strokeStyle = `rgba(${col[0] - 20},${col[1] - 20},${col[2] - 20},0.9)`; g.lineWidth = 0.8;
+  g.beginPath(); g.moveTo(qx(0), qy(0)); g.quadraticCurveTo(0, bend * 2, qx(1), qy(1)); g.stroke();
+  return sp;
+}
+function makeManure(o, s) {
+  const r = mulberry32(o.seed);
+  const sp = spriteCanvas(o.size * 2.4, o.size * 2.4, s), g = sp.g;
+  for (let j = 0; j < 5; j++) { g.fillStyle = `rgba(${rr(r, 45, 70) | 0},${rr(r, 38, 55) | 0},${rr(r, 22, 32) | 0},${rr(r, 0.5, 0.9)})`; blob(g, r, rr(r, -1, 1) * o.size * 0.3, rr(r, -1, 1) * o.size * 0.3, o.size * rr(r, 0.35, 0.6), 0.5); g.fill(); }
+  if (r() < 0.6) { g.fillStyle = "rgba(235,232,220,0.8)"; blob(g, r, 0, 0, o.size * 0.22, 0.5); g.fill(); }
+  return sp;
+}
+function makeStain(o, s) {
+  const r = mulberry32(o.seed);
+  const sp = spriteCanvas(o.len + 10, o.wid + 10, s), g = sp.g;
+  for (let i = 0; i < 22; i++) {
+    const x = rr(r, -o.len / 2, o.len / 2) * 0.85, y = rr(r, -o.wid / 2, o.wid / 2) * 0.6, rad = rr(r, 0.2, 0.55) * o.wid;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, `rgba(${o.col},${o.alpha})`); gr.addColorStop(1, `rgba(${o.col},0)`);
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  return sp;
+}
+const MAKERS = { egg: makeEgg, broken: makeBroken, feather: makeFeather, manure: makeManure, stain: makeStain };
+function sprite(o) { if (!o.spr || o.spr.s !== scale) o.spr = MAKERS[o.type](o, scale); return o.spr; }
+function shadowSprite(o) { if (!o.shd || o.shd.s !== scale) o.shd = makeShadow(o, scale); return o.shd; }
+
+// ---------- belt texture ----------
+const TILE_MM = 40;
+let beltTile = null, beltPat = null, beltTileType = "";
+function weave(u, v) {
+  const p = 2.5, cu = Math.floor(u / p), cw = Math.floor(v / p);
+  const over = (cu + cw) & 1, fu = u / p - cu, fv = v / p - cw;
+  const t = over ? fu : fv, along = over ? fv : fu;
+  const edge = 1 - 0.32 * Math.pow(Math.abs(t - 0.5) * 2, 6);
+  return edge * (0.95 + 0.05 * Math.sin(along * Math.PI)) * (over ? 1 : 0.92);
+}
+function buildBeltTile() {
+  const P = clamp(Math.round(TILE_MM * scale), 8, 640);
+  const c = document.createElement("canvas"); c.width = c.height = P;
+  const g = c.getContext("2d"), img = g.createImageData(P, P), d = img.data;
+  const r = mulberry32(99);
+  const type = S.beltType;
+  const base = type === "pp" ? [236, 233, 222] : type === "ppold" ? [206, 196, 168] : [44, 45, 47];
+  const colNoise = []; for (let i = 0; i < P; i++) colNoise.push(r() - 0.5);
+  for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) {
+    let f;
+    if (type === "rubber") {
+      f = 1 + colNoise[i] * 0.12 + (r() - 0.5) * 0.14;
+    } else {
+      let acc = 0;
+      for (let sy = 0; sy < 2; sy++) for (let sx = 0; sx < 2; sx++) acc += weave(((i + (sx + 0.5) / 2) / P) * TILE_MM, ((j + (sy + 0.5) / 2) / P) * TILE_MM);
+      f = acc / 4 + (r() - 0.5) * (type === "ppold" ? 0.09 : 0.05);
+    }
+    const o = (j * P + i) * 4;
+    d[o] = clamp(base[0] * f, 0, 255); d[o + 1] = clamp(base[1] * f, 0, 255); d[o + 2] = clamp(base[2] * f, 0, 255); d[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  beltTile = c; beltTileType = type;
+  beltPat = sctx.createPattern(c, "repeat");
+}
+
+// ---------- noise ----------
+let noisePats = null;
+function buildNoise() {
+  noisePats = [];
+  for (let n = 0; n < 4; n++) {
+    const c = document.createElement("canvas"); c.width = c.height = 256;
+    const g = c.getContext("2d"), img = g.createImageData(256, 256), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const v = 128 + (Math.random() + Math.random() + Math.random() - 1.5) * 150; d[i] = d[i + 1] = d[i + 2] = clamp(v, 0, 255); d[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+    noisePats.push(ctx.createPattern(c, "repeat"));
+  }
+}
+
+// ---------- simulation state ----------
+const LOOP_MM = 14000;
+let eggs = [], flats = [], stains = [];
+let beltPos = 0, simTime = 0, nextId = 1, spawnTimer = 0;
+let counted = 0, countTimes = [], tally = { dirty: 0, cracked: 0, broken: 0 }, rateT0 = 0;
+let frameNo = 0, flickPhase = 0;
+
+function restart() {
+  rng = mulberry32(Number(S.seed) || 1);
+  eggs = []; flats = []; stains = []; beltPos = 0; simTime = 0; nextId = 1; spawnTimer = 0;
+  for (let i = 0; i < 260; i++) {
+    const kind = rng();
+    stains.push({
+      type: "stain", seed: newSeed(), u: rand(0, LOOP_MM), xf: rand(-0.48, 0.48), thr: rng(),
+      len: rand(15, 90), wid: rand(8, 30),
+      col: kind < 0.55 ? "92,74,46" : kind < 0.75 ? "190,140,30" : kind < 0.9 ? "70,72,60" : "120,110,95",
+      alpha: rand(0.1, 0.28),
+    });
+  }
+  const v = S.speed * 1000 / 60;
+  if (v > 0) { const T = Math.min(120, (Lmm + 400) / v); for (let t = 0; t < T; t += 1 / 60) step(1 / 60); }
+  counted = 0; countTimes = []; tally = { dirty: 0, cracked: 0, broken: 0 }; rateT0 = simTime; frameNo = 0;
+  render();
+}
+
+function lateralX(halfFree) {
+  const bw = S.beltW;
+  switch (S.lateral) {
+    case "edges": return (rng() < 0.5 ? -1 : 1) * (halfFree - Math.abs(gauss()) * bw * 0.07);
+    case "center": return clamp(gauss() * bw * 0.14, -halfFree, halfFree);
+    case "left": return -halfFree + Math.abs(gauss()) * bw * 0.18;
+    default: return rand(-halfFree, halfFree);
+  }
+}
+function eggAngle() {
+  if (S.align < 0.03) return rand(0, TAU);
+  return Math.PI / 2 + gauss() * (1 - S.align) * 1.4 + (rng() < 0.5 ? Math.PI : 0);
+}
+function newEgg() {
+  const len = clamp(S.size + gauss() * S.sizeVar, 40, 76);
+  const si = clamp(0.765 + gauss() * 0.02, 0.7, 0.83);
+  const e = { type: "egg", id: nextId++, seed: newSeed(), a: len / 2, b: (len * si) / 2, k: clamp(0.08 + gauss() * 0.025, 0.02, 0.15), x: 0, y: 0, ang: eggAngle(), vx: 0, vy: 0, va: 0, counted: false };
+  e.brown = rng() < S.brown;
+  if (e.brown) { e.h = rand(17, 31); e.sat = rand(34, 58); e.l = rand(46, 68); }
+  else { e.h = rand(38, 50); e.sat = rand(12, 30); e.l = rand(89, 95); }
+  e.dirty = rng() < S.dirty; e.cracked = rng() < S.cracked;
+  e.cls = e.cracked ? "cracked" : e.dirty ? "dirty" : "egg";
+  return e;
+}
+function circles(e) {
+  const d = e.a - e.b, c = Math.cos(e.ang) * d, s = Math.sin(e.ang) * d;
+  return [[e.x + c, e.y + s], [e.x - c, e.y - s]];
+}
+function overlapsAny(e) {
+  const ce = circles(e);
+  for (const o of eggs) {
+    if (Math.abs(o.y - e.y) > 80) continue;
+    for (const p of circles(o)) for (const q of ce) {
+      const dx = p[0] - q[0], dy = p[1] - q[1], rs = o.b + e.b + 0.5;
+      if (dx * dx + dy * dy < rs * rs) return true;
+    }
+  }
+  return false;
+}
+function spawnGroup() {
+  let n = 1; const q = S.clump * 0.8;
+  while (rng() < q && n < 14) n++;
+  let px = null, py = -70 - rand(0, 30);
+  for (let i = 0; i < n; i++) {
+    if (rng() < S.broken) {
+      const h = S.brown > rng() ? [rand(17, 31), rand(34, 58), rand(46, 68)] : [rand(38, 50), rand(12, 30), rand(89, 95)];
+      flats.push({ type: "broken", cls: "broken", id: nextId++, seed: newSeed(), x: lateralX(S.beltW / 2 - 30), y: py - 40, ang: rand(0, TAU), h: h[0], sat: h[1], l: h[2], hx: 38, hy: 34, counted: false });
+      continue;
+    }
+    const e = newEgg();
+    const half = S.beltW / 2 - e.b - 1;
+    if (half <= 0) return;
+    let ok = false;
+    for (let t = 0; t < 10 && !ok; t++) {
+      if (px === null || t > 5) { e.x = lateralX(half); e.y = py - t * 12; }
+      else { const th = rand(0, TAU), dd = e.a + e.b + rand(1, 8); e.x = clamp(px + Math.cos(th) * dd, -half, half); e.y = py + Math.sin(th) * dd * 0.9 - 20; }
+      ok = e.y > -320 && !overlapsAny(e);
+    }
+    if (!ok) continue;
+    eggs.push(e); px = e.x; py = e.y;
+  }
+}
+function spawnFlat(kind) {
+  const half = S.beltW / 2 - 8;
+  if (kind === "feather") {
+    const down = rng() < 0.35;
+    flats.push({ type: "feather", cls: "feather", id: nextId++, seed: newSeed(), x: rand(-half, half), y: -110, ang: rand(0, TAU), len: down ? rand(18, 34) : rand(30, 75), down, white: rng() < 0.4 + 0.6 * (1 - S.brown), hx: 0, hy: 0 });
+  } else {
+    flats.push({ type: "manure", cls: "manure", id: nextId++, seed: newSeed(), x: rand(-half, half), y: -60, ang: rand(0, TAU), size: rand(2, 7) });
+  }
+}
+
+function step(dt) {
+  const v = S.speed * 1000 / 60;
+  beltPos += v * dt; simTime += dt;
+  const lineY = Lmm * S.linePos;
+  // arrivals
+  const meanGroup = 1 / (1 - S.clump * 0.8);
+  const evRate = S.rate / 3600 / meanGroup;
+  if (evRate > 0 && v > 0) {
+    spawnTimer -= dt;
+    while (spawnTimer <= 0) { spawnGroup(); spawnTimer += -Math.log(1 - rng()) / evRate; }
+  } else spawnTimer = 0.2;
+  const dist = (v * dt) / 1000;
+  if (rng() < S.feathers * dist) spawnFlat("feather");
+  if (rng() < S.manure * dist) spawnFlat("manure");
+
+  // motion
+  const vib = S.vibration, damp = Math.exp(-dt * 7), sq = Math.sqrt(dt);
+  for (const e of eggs) {
+    if (vib > 0 && v > 0) { e.vx += gauss() * vib * 14 * sq; e.vy += gauss() * vib * 8 * sq; e.va += gauss() * vib * 0.25 * sq; }
+    e.prevY = e.y;
+    e.x += e.vx * dt; e.y += (v + e.vy) * dt; e.ang += e.va * dt;
+    e.vx *= damp; e.vy *= damp; e.va *= Math.exp(-dt * 5);
+  }
+  for (const f of flats) {
+    f.prevY = f.y; f.y += v * dt;
+    if (f.type === "feather" && vib > 0 && v > 0) { f.x += gauss() * vib * 3 * sq; f.ang += gauss() * vib * 0.05 * sq; }
+  }
+  // contacts: sort and sweep along belt
+  eggs.sort((p, q) => p.y - q.y);
+  const half = S.beltW / 2;
+  for (let it = 0; it < 2; it++) {
+    for (let i = 0; i < eggs.length; i++) {
+      const A = eggs[i], ca = circles(A);
+      for (let j = i + 1; j < eggs.length; j++) {
+        const B = eggs[j];
+        if (B.y - A.y > A.a + B.a + 2) break;
+        if (Math.abs(B.x - A.x) > A.a + B.a + 2) continue;
+        const cb = circles(B);
+        for (const p of ca) for (const q of cb) {
+          let dx = q[0] - p[0], dy = q[1] - p[1];
+          const d2 = dx * dx + dy * dy, rs = A.b + B.b;
+          if (d2 >= rs * rs) continue;
+          const d = Math.sqrt(d2) || 0.001, o = (rs - d) * 0.5;
+          dx /= d; dy /= d;
+          A.x -= dx * o; A.y -= dy * o; B.x += dx * o; B.y += dy * o;
+          A.vx -= dx * o * 3; B.vx += dx * o * 3;
+          A.ang += (((p[0] - A.x) * -dy - (p[1] - A.y) * -dx) * o) / (A.a * A.a) * 0.6;
+          B.ang += (((q[0] - B.x) * dy - (q[1] - B.y) * dx) * o) / (B.a * B.a) * 0.6;
+        }
+      }
+      // guide rails
+      for (const p of circles(A)) {
+        const lim = half - A.b;
+        const over = p[0] > lim ? p[0] - lim : p[0] < -lim ? p[0] + lim : 0;
+        if (over) {
+          A.x -= over; A.vx *= -0.3;
+          A.ang += (((p[1] - A.y) * over) / (A.a * A.a)) * 0.5;
+        }
+      }
+    }
+  }
+  // count line and cleanup
+  const tally1 = (o) => {
+    if (o.counted || o.prevY === undefined) return;
+    if (o.prevY < lineY && o.y >= lineY) {
+      o.counted = true; counted++; countTimes.push(simTime);
+      if (o.cls !== "egg" && tally[o.cls] !== undefined) tally[o.cls]++;
+    }
+  };
+  eggs.forEach(tally1);
+  flats.forEach((f) => f.type === "broken" && tally1(f));
+  const gone = Lmm + 160;
+  if (eggs.length && eggs[eggs.length - 1].y > gone) eggs = eggs.filter((e) => e.y <= gone);
+  flats = flats.filter((f) => f.y <= gone);
+  while (countTimes.length && countTimes[0] < simTime - 60) countTimes.shift();
+}
+
+// ---------- rendering ----------
+function drawSprite(g, spr, x, y, ang) {
+  g.setTransform(M); g.translate(x, y); g.rotate(ang);
+  g.drawImage(spr.c, -spr.wmm / 2, -spr.hmm / 2, spr.wmm, spr.hmm);
+}
+function renderScene() {
+  const g = sctx, bw = S.beltW, half = bw / 2, rail = 22;
+  const y0 = -60, y1 = Lmm + 60, xs = S.fov / 2 + 60;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+  g.fillStyle = "#16181a"; g.fillRect(0, 0, W, H);
+  g.setTransform(M);
+  // structure beyond the rails
+  const out = g.createLinearGradient(-xs, 0, xs, 0);
+  out.addColorStop(0, "#0d0f10"); out.addColorStop(0.5, "#2a2d2f"); out.addColorStop(1, "#0d0f10");
+  g.fillStyle = out; g.fillRect(-xs, y0, xs * 2, y1 - y0);
+  // belt
+  if (!beltTile || beltTileType !== S.beltType) buildBeltTile();
+  const P = beltTile.width, off = modp(beltPos, TILE_MM);
+  beltPat.setTransform(new DOMMatrix().translate(-half, off).scale(TILE_MM / P));
+  g.fillStyle = beltPat; g.fillRect(-half, y0, bw, y1 - y0);
+  const sag = g.createLinearGradient(-half, 0, half, 0);
+  sag.addColorStop(0, "rgba(0,0,0,0.12)"); sag.addColorStop(0.15, "rgba(0,0,0,0)"); sag.addColorStop(0.85, "rgba(0,0,0,0)"); sag.addColorStop(1, "rgba(0,0,0,0.12)");
+  g.fillStyle = sag; g.fillRect(-half, y0, bw, y1 - y0);
+  // stains (fixed to the belt loop)
+  for (const st of stains) {
+    if (st.thr > S.beltDirt) continue;
+    const y = modp(st.u + beltPos, LOOP_MM) - 200;
+    if (y < y0 - 60 || y > y1 + 60) continue;
+    drawSprite(g, sprite(st), st.xf * bw, y, Math.PI / 2);
+  }
+  // belt splice with clipper lacing
+  const ys = modp(beltPos, LOOP_MM) - 200;
+  if (ys > y0 && ys < y1) {
+    g.setTransform(M);
+    g.fillStyle = "rgba(20,20,20,0.55)"; g.fillRect(-half, ys - 0.6, bw, 1.2);
+    for (let x = -half + 3; x < half - 3; x += 6.5) {
+      g.fillStyle = "#8f9599"; g.fillRect(x, ys - 3.5, 2.4, 7);
+      g.fillStyle = "rgba(255,255,255,0.5)"; g.fillRect(x, ys - 3.5, 0.8, 7);
+    }
+  }
+  // flat stuff on belt
+  for (const f of flats) if (f.y > y0 - 80 && f.y < y1 + 80) drawSprite(g, sprite(f), f.x, f.y, f.ang);
+  // egg shadows, offset away from the light (light direction is in image space)
+  const la = (S.lightAng * Math.PI) / 180;
+  const inv = M.inverse();
+  const p0 = inv.transformPoint(new DOMPoint(0, 0)), p1 = inv.transformPoint(new DOMPoint(-Math.cos(la), -Math.sin(la)));
+  let lx = p1.x - p0.x, ly = p1.y - p0.y; const ln = Math.hypot(lx, ly) || 1;
+  lx = (lx / ln) * S.shadow; ly = (ly / ln) * S.shadow;
+  g.globalAlpha = 0.55 + Math.min(0.25, S.shadow * 0.03);
+  for (const e of eggs) if (e.y > y0 - 60 && e.y < y1 + 60) drawSprite(g, shadowSprite(e), e.x + lx, e.y + ly, e.ang);
+  g.globalAlpha = 1;
+  for (const e of eggs) if (e.y > y0 - 60 && e.y < y1 + 60) drawSprite(g, sprite(e), e.x, e.y, e.ang);
+  // guide rails, galvanized steel
+  g.setTransform(M);
+  for (const side of [-1, 1]) {
+    const x0 = side > 0 ? half : -half - rail;
+    const rg = g.createLinearGradient(x0, 0, x0 + rail, 0);
+    const stops = side > 0 ? ["#6b7174", "#c6cacc", "#9fa5a8", "#d9dcdd", "#7b8184"] : ["#7b8184", "#d9dcdd", "#9fa5a8", "#c6cacc", "#6b7174"];
+    stops.forEach((c, i) => rg.addColorStop(i / 4, c));
+    g.fillStyle = rg; g.fillRect(x0, y0, rail, y1 - y0);
+    const ix = side > 0 ? half : -half;
+    const sh = g.createLinearGradient(ix, 0, ix - side * 10, 0);
+    sh.addColorStop(0, "rgba(0,0,0,0.38)"); sh.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = sh; g.fillRect(Math.min(ix, ix - side * 10), y0, 10, y1 - y0);
+  }
+}
+
+const tempMul = (k) => {
+  const t = (k - 2700) / (6500 - 2700); // 0 warm .. 1 cool
+  const warm = [255, 206, 158], neutral = [255, 250, 244], cool = [222, 236, 255];
+  const [a, b, f] = t < 0.55 ? [warm, neutral, t / 0.55] : [neutral, cool, (t - 0.55) / 0.45];
+  return a.map((v, i) => Math.round(v + (b[i] - v) * f));
+};
+
+function render() {
+  frameNo++;
+  renderScene();
+  const g = ctx;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+  g.drawImage(sc, 0, 0);
+  // motion blur: exact average of copies shifted upstream across the exposure
+  const v = S.speed * 1000 / 60;
+  const blurPx = v * (S.exposure / 1000) * scale;
+  if (blurPx > 0.6) {
+    const n = clamp(Math.ceil(blurPx / 1.2), 2, 14);
+    const d0 = M.transformPoint(new DOMPoint(0, 0)), d1 = M.transformPoint(new DOMPoint(0, -1));
+    const dl = Math.hypot(d1.x - d0.x, d1.y - d0.y);
+    const ux = (d1.x - d0.x) / dl, uy = (d1.y - d0.y) / dl;
+    for (let i = 1; i < n; i++) { g.globalAlpha = 1 / (i + 1); const t = (i / (n - 1)) * blurPx; g.drawImage(sc, ux * t, uy * t); }
+    g.globalAlpha = 1;
+  }
+  // light color
+  const tm = tempMul(S.temp);
+  g.globalCompositeOperation = "multiply"; g.fillStyle = `rgb(${tm[0]},${tm[1]},${tm[2]})`; g.fillRect(0, 0, W, H);
+  // flicker: rolling-shutter bands from 120 Hz light; long exposures average them out
+  if (S.flicker > 0) {
+    const depth = S.flicker * 0.55 * clamp(1 - S.exposure / 8.33, 0, 1);
+    flickPhase += TAU * (0.31 + 0.07 * Math.sin(simTime * 0.7));
+    const bands = 120 * (0.85 / S.fps);
+    if (depth > 0.01) {
+      const lg = g.createLinearGradient(0, 0, 0, H);
+      for (let i = 0; i <= 32; i++) { const y = i / 32; lg.addColorStop(y, `rgba(0,0,0,${(depth * (0.5 + 0.5 * Math.sin(TAU * bands * y + flickPhase))).toFixed(3)})`); }
+      g.globalCompositeOperation = "source-over"; g.fillStyle = lg; g.fillRect(0, 0, W, H);
+    }
+    const beat = S.flicker * 0.12 * (0.5 + 0.5 * Math.sin(simTime * 2.3));
+    g.fillStyle = `rgba(0,0,0,${beat.toFixed(3)})`; g.fillRect(0, 0, W, H);
+  }
+  // brightness gain (clips like a real sensor)
+  g.globalCompositeOperation = "source-over";
+  if (S.gain < 1) { g.fillStyle = `rgba(0,0,0,${(1 - S.gain).toFixed(3)})`; g.fillRect(0, 0, W, H); }
+  else if (S.gain > 1) { g.globalCompositeOperation = "lighter"; let k = S.gain - 1; while (k > 0.001) { g.globalAlpha = Math.min(1, k); g.drawImage(cv, 0, 0); k -= 1; } g.globalAlpha = 1; g.globalCompositeOperation = "source-over"; }
+  // vignette
+  if (S.vignette > 0) {
+    const R = Math.hypot(W, H) / 2;
+    const vg = g.createRadialGradient(W / 2, H / 2, R * 0.35, W / 2, H / 2, R);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, `rgba(0,0,0,${(S.vignette * 0.75).toFixed(3)})`);
+    g.fillStyle = vg; g.fillRect(0, 0, W, H);
+  }
+  // sensor noise
+  if (S.noise > 0) {
+    if (!noisePats) buildNoise();
+    const pat = noisePats[frameNo % noisePats.length];
+    pat.setTransform(new DOMMatrix().translate((Math.random() * 256) | 0, (Math.random() * 256) | 0));
+    g.globalCompositeOperation = "overlay"; g.globalAlpha = clamp(S.noise * 0.32 * Math.max(1, S.gain), 0, 1);
+    g.fillStyle = pat; g.fillRect(0, 0, W, H);
+    g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+  }
+  drawOverlays(g);
+}
+
+function boxOf(o) {
+  let hx, hy;
+  if (o.type === "egg") {
+    const c = Math.cos(o.ang), s = Math.sin(o.ang);
+    hx = Math.hypot(o.a * c, o.b * s); hy = Math.hypot(o.a * s, o.b * c);
+  } else if (o.type === "feather") {
+    const L = o.down ? o.len * 0.35 : o.len * 0.5, w = o.down ? L : o.len * 0.22;
+    const c = Math.cos(o.ang), s = Math.sin(o.ang);
+    hx = Math.abs(L * c) + Math.abs(w * s); hy = Math.abs(L * s) + Math.abs(w * c);
+  } else { hx = o.hx; hy = o.hy; }
+  const p = M.transformPoint(new DOMPoint(o.x - hx, o.y - hy)), q = M.transformPoint(new DOMPoint(o.x + hx, o.y + hy));
+  const x0 = Math.max(0, Math.min(p.x, q.x)), y0 = Math.max(0, Math.min(p.y, q.y));
+  const x1 = Math.min(W, Math.max(p.x, q.x)), y1 = Math.min(H, Math.max(p.y, q.y));
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+const CLS_COL = { egg: "#4ade80", dirty: "#fbbf24", cracked: "#fb923c", broken: "#f43f5e", feather: "#38bdf8" };
+function labeled() {
+  const out = [];
+  for (const o of eggs) { const b = boxOf(o); if (b) out.push([o, b]); }
+  for (const o of flats) if (o.type !== "manure") { const b = boxOf(o); if (b) out.push([o, b]); }
+  return out;
+}
+function drawOverlays(g) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const u = Math.max(1, H / 720);
+  if (S.boxes) {
+    g.lineWidth = 1.5 * u; g.font = `500 ${11 * u}px "IBM Plex Mono", ui-monospace, monospace`; g.textBaseline = "bottom";
+    for (const [o, b] of labeled()) {
+      const col = CLS_COL[o.cls]; g.strokeStyle = col; g.strokeRect(b[0] + 0.5, b[1] + 0.5, b[2], b[3]);
+      if (S.labels) {
+        const t = `${o.cls} ${o.id}`, tw = g.measureText(t).width + 6 * u;
+        g.fillStyle = col; g.fillRect(b[0], b[1] - 14 * u, tw, 14 * u);
+        g.fillStyle = "#0b0d0e"; g.fillText(t, b[0] + 3 * u, b[1] - 2 * u);
+      }
+    }
+  }
+  if (S.countLine) {
+    const ly = Lmm * S.linePos, half = S.beltW / 2;
+    const a = M.transformPoint(new DOMPoint(-half, ly)), b = M.transformPoint(new DOMPoint(half, ly));
+    g.strokeStyle = "rgba(255,196,40,0.95)"; g.lineWidth = 2 * u; g.setLineDash([10 * u, 6 * u]);
+    g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+    const tx = clamp(Math.min(a.x, b.x) + 8 * u, 8 * u, W - 150 * u), ty = clamp(Math.min(a.y, b.y) - 8 * u, 40 * u, H - 30 * u);
+    g.font = `600 ${15 * u}px "IBM Plex Mono", ui-monospace, monospace`; g.textBaseline = "bottom";
+    const t = `COUNT ${counted}`, tw = g.measureText(t).width + 12 * u;
+    g.fillStyle = "rgba(0,0,0,0.6)"; g.fillRect(tx - 6 * u, ty - 20 * u, tw, 22 * u);
+    g.fillStyle = "#ffc428"; g.fillText(t, tx, ty);
+  }
+  if (S.osd) {
+    const d = new Date(), z = (n, l = 2) => String(n).padStart(l, "0");
+    const ts = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}.${z(d.getMilliseconds(), 3)}`;
+    g.font = `500 ${14 * u}px "IBM Plex Mono", ui-monospace, monospace`; g.textBaseline = "top";
+    g.shadowColor = "rgba(0,0,0,0.9)"; g.shadowBlur = 3 * u; g.fillStyle = "rgba(255,255,255,0.92)";
+    g.fillText("CAM 02  BELT B  EGG COLLECTION", 12 * u, 10 * u);
+    const tw = g.measureText(ts).width; g.fillText(ts, W - tw - 12 * u, 10 * u);
+    g.textBaseline = "bottom";
+    g.fillText(`${W}x${H}  ${S.fps}fps  1/${Math.round(1000 / S.exposure)}s  F${String(frameNo).padStart(7, "0")}`, 12 * u, H - 10 * u);
+    g.shadowBlur = 0; g.shadowColor = "transparent";
+  }
+}
+
+// ---------- stats ----------
+function updateStats() {
+  $("#st-count").textContent = counted.toLocaleString();
+  const span = Math.min(60, simTime - rateT0);
+  const rate = span > 2 ? (countTimes.length / span) * 3600 : 0;
+  $("#st-rate").innerHTML = `${Math.round(rate).toLocaleString()} <small>eggs/h</small>`;
+  let inFrame = 0, area = 0;
+  for (const e of eggs) if (e.y > -e.a && e.y < Lmm + e.a) { inFrame++; area += Math.PI * e.a * e.b; }
+  $("#st-frame").textContent = inFrame;
+  const beltArea = Math.min(S.beltW, S.fov) * Lmm;
+  $("#st-cover").textContent = ((area / beltArea) * 100).toFixed(1) + "%";
+  $("#st-scale").innerHTML = `${scale.toFixed(2)} <small>px/mm · egg ≈ ${Math.round(S.size * scale)} px</small>`;
+  $("#st-def").textContent = `${tally.dirty} / ${tally.cracked} / ${tally.broken}`;
+}
+
+// ---------- controls ----------
+const inputs = {};
+function buildControls() {
+  const root = $("#controls"), groups = {};
+  const ps = $("#preset");
+  for (const [k, p] of Object.entries(PRESETS)) ps.add(new Option(p.label, k));
+  ps.add(new Option("Custom", "custom"));
+  ps.value = S.preset in PRESETS ? S.preset : "custom";
+  ps.addEventListener("change", () => {
+    if (!(ps.value in PRESETS)) return;
+    const { label, ...vals } = PRESETS[ps.value];
+    Object.assign(S, BASE, vals, { preset: ps.value });
+    syncControls(); configureCamera(); restart(); save();
+  });
+  for (const [grp, c] of CONTROLS) {
+    if (!groups[grp]) {
+      const d = document.createElement("details"); d.open = grp !== "Simulation";
+      d.innerHTML = `<summary>${grp}</summary><div class="rows"></div>`;
+      root.appendChild(d); groups[grp] = d.querySelector(".rows");
+    }
+    const row = document.createElement("div"), id = "c-" + c.k;
+    row.className = "ctl" + (c.type === "toggle" ? " toggle" : "");
+    let el;
+    if (c.type === "select") {
+      row.innerHTML = `<label for="${id}">${c.label}</label>`;
+      el = document.createElement("select"); el.id = id;
+      for (const [v, t] of c.options) el.add(new Option(t, v));
+    } else if (c.type === "toggle") {
+      row.innerHTML = `<label for="${id}">${c.label}</label>`;
+      el = document.createElement("input"); el.type = "checkbox"; el.id = id;
+    } else if (c.type === "number") {
+      row.innerHTML = `<label for="${id}">${c.label}</label>`;
+      el = document.createElement("input"); el.type = "number"; el.id = id; el.min = 1; el.step = 1;
+    } else {
+      row.innerHTML = `<label for="${id}">${c.label}</label><output id="${id}-o"></output>`;
+      el = document.createElement("input"); el.type = "range"; el.id = id; el.min = c.min; el.max = c.max; el.step = c.step;
+    }
+    row.appendChild(el); groups[grp].appendChild(row);
+    inputs[c.k] = { el, c };
+    el.addEventListener(c.type === "select" || c.type === "toggle" || c.type === "number" ? "change" : "input", () => {
+      const val = c.type === "toggle" ? el.checked : c.type === "select" ? el.value : Number(el.value);
+      S[c.k] = val;
+      if (c.f) $(`#${id}-o`).textContent = c.f(val);
+      if (c.k !== "seed" && !["osd", "boxes", "labels", "countLine", "linePos"].includes(c.k)) { S.preset = "custom"; ps.value = "custom"; }
+      if (["res", "fov", "flow"].includes(c.k)) configureCamera();
+      if (c.k === "beltW") for (const e of eggs) e.x = clamp(e.x, -S.beltW / 2 + e.b, S.beltW / 2 - e.b);
+      if (paused) render();
+      save();
+    });
+  }
+  syncControls();
+}
+function syncControls() {
+  for (const { el, c } of Object.values(inputs)) {
+    if (c.type === "toggle") el.checked = !!S[c.k]; else el.value = S[c.k];
+    if (c.f) $(`#c-${c.k}-o`).textContent = c.f(Number(S[c.k]));
+  }
+  $("#preset").value = S.preset in PRESETS ? S.preset : "custom";
+}
+
+// ---------- loop ----------
+let paused = false, last = performance.now(), acc = 0, frameAcc = 0, statT = 0;
+const DT = 1 / 120;
+function tick(now) {
+  const dtReal = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!paused) {
+    acc += dtReal; frameAcc += dtReal;
+    while (acc >= DT) { step(DT); acc -= DT; }
+    const fdt = 1 / S.fps;
+    if (frameAcc >= fdt) { frameAcc = frameAcc % fdt; render(); }
+  }
+  statT += dtReal;
+  if (statT > 0.25) { statT = 0; updateStats(); }
+  requestAnimationFrame(tick);
+}
+function setPaused(p) { paused = p; $("#play").textContent = p ? "Play" : "Pause"; }
+function stepFrame() { setPaused(true); const n = Math.round(1 / S.fps / DT) || 1; for (let i = 0; i < n; i++) step(DT); render(); updateStats(); }
+
+let toastT = 0;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
+function frameLabels() {
+  return {
+    frame: frameNo, width: W, height: H, px_per_mm: +scale.toFixed(4), flow: S.flow,
+    objects: labeled().map(([o, b]) => ({
+      id: o.id, class: o.cls, bbox_xywh: b.map((v) => +v.toFixed(1)),
+      ...(o.type === "egg" ? { length_mm: +(o.a * 2).toFixed(1), width_mm: +(o.b * 2).toFixed(1), color: o.brown ? "brown" : "white", dirty: o.dirty, cracked: o.cracked } : {}),
+    })),
+  };
+}
+
+$("#play").addEventListener("click", () => setPaused(!paused));
+$("#step").addEventListener("click", stepFrame);
+$("#restart").addEventListener("click", () => { restart(); updateStats(); });
+$("#copy").addEventListener("click", () => {
+  const txt = JSON.stringify(frameLabels(), null, 2);
+  const n = frameLabels().objects.length;
+  navigator.clipboard.writeText(txt).then(() => toast(`Copied labels for ${n} objects in frame ${frameNo}`), () => toast("Clipboard is blocked here. Pause and try again in a regular browser tab."));
+});
+window.addEventListener("keydown", (ev) => {
+  if (ev.target.closest && ev.target.closest("input, select, textarea")) return;
+  if (ev.code === "Space") { ev.preventDefault(); setPaused(!paused); }
+  else if (ev.key === ".") stepFrame();
+});
+
+buildControls();
+configureCamera();
+restart();
+updateStats();
+requestAnimationFrame(tick);
+})();
+</script>
